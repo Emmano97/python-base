@@ -1,0 +1,5811 @@
+cls_fifo.py!@
+# pylint: disable=c0111, c0103
+
+from nbautoeval import Args, ExerciseClass, ClassScenario
+
+# @BEG@ name=fifo
+class Fifo:
+    """
+    Une classe FIFO implémentée avec une simple liste
+    """
+
+    # dans cette première version on utilise
+    # un object 'list' standard
+    # on ajoute à la fin avec    queue.append(x),
+    # et on enlève au début avec queue.pop(0)
+    #
+    # remarquez qu'on pourrait aussi
+    # ajouter au début avec queue.insert(0, x)
+    # enlever à la fin avec queue.pop()
+
+    def __init__(self):
+        # l'attribut queue est un objet liste
+        self.queue = []
+
+    def __repr__(self):
+        contents = ", ".join(str(item) for item in self.queue)
+        return f"[Fifo {contents}]"
+
+    def incoming(self, item):
+        # on insère au début de la liste
+        self.queue.append(item)
+
+    def outgoing(self):
+        # pas la peine d'utiliser un try/except dans ce cas
+        if self.queue:
+            return self.queue.pop(0)
+        # si on utilise pylint on va avoir envie de rajouter ceci
+        # qui n'est pas vraiment indispensable..
+        else:
+            return None
+# @END@
+
+
+# @BEG@ name=fifo more=bis
+from collections import deque
+
+class FifoBis:
+    """
+    une alternative en utilisant exactement la même stratégie
+    mais avec un objet de type collections.deque
+    en effet, l'objet 'list' standard est optimisé pour
+    ajouter/enlever **à la fin** de la liste
+    et on a vu dans la première version du code qu'il nous faut
+    travailler sur les deux cotés de la pile, quel que soit le sens
+    qu'on choisit pour implémenter la pile
+    donc si la pile a des chances d'être longue de plusieurs milliers
+    d'objets, il est utile de prendre un 'deque'
+    'deque' vient de 'double-entry queue', et est optimisée
+    pour les accès depuis le début et/ou la fin de la liste
+    """
+    def __init__(self):
+        self.queue = deque()
+
+    # ici pour faire bon poids on utilise la stratégie inverse
+    # de la première version de la pile, on insère au début et on
+    # enlève de la fin
+    # du coup on les affice dans l'autre sens
+    def __repr__(self):
+        contents = ", ".join(str(item) for item in reversed(self.queue))
+        return f"[Fifo {contents}]"
+
+    def incoming(self, item):
+        self.queue.insert(0, item)
+
+    def outgoing(self):
+        if self.queue:
+            return self.queue.pop()
+
+# @END@
+
+fifo_scenarios = [
+    ClassScenario(
+        # init arguments
+        Args(),
+        "INSTANCE.outgoing()",
+        "INSTANCE.incoming(1)",
+        "INSTANCE.incoming(2)",
+#        "INSTANCE",
+        "INSTANCE.outgoing()",
+        "INSTANCE.outgoing()",
+        "INSTANCE.outgoing()",
+    ),
+    ClassScenario(
+        # init arguments
+        Args(),
+        "INSTANCE.incoming(1)",
+        "INSTANCE.incoming(2)",
+#        "INSTANCE",
+        "INSTANCE.outgoing()",
+        "INSTANCE.incoming(3)",
+#        "INSTANCE",
+        "INSTANCE.outgoing()",
+#        "INSTANCE",
+        "INSTANCE.outgoing()",
+        "INSTANCE.outgoing()",
+    ),
+
+    ClassScenario(
+        # init arguments
+        Args(),
+        "INSTANCE.incoming(1)",
+        "INSTANCE.incoming(2)",
+        "INSTANCE.outgoing()",
+        "INSTANCE.outgoing()",
+        "INSTANCE.incoming(3)",
+        "INSTANCE.incoming(4)",
+        "INSTANCE.outgoing()",
+        "INSTANCE.outgoing()",
+    ),
+
+]
+
+exo_fifo = ExerciseClass(
+    Fifo, fifo_scenarios,
+    obj_name = "F",
+    check_init=False,
+)
+
+@endcls_polynomial.py!@
+# pylint: disable=c0111, c0103
+
+from functools import reduce
+from itertools import count, zip_longest, repeat, product
+
+from nbautoeval import (
+    Args, ExerciseClass, ClassScenario, ClassExpression, ClassStatement)
+
+# @BEG@ name=polynomial latex_size=footnotesize
+class Polynomial:
+    """
+    a class that models polynomials
+
+    example:
+        >>> f = Polynomial(3, 2, 1)
+        3Xˆ2 + 2X +1
+        >>> f(10)
+        321
+    """
+
+
+    # pretty print one monomial
+    @staticmethod
+    def repr_monomial(degre, coef):
+        if coef == 0:
+            return "0"
+        elif degre == 0:
+            return str(coef)
+        elif degre == 1:
+            return f"{coef}X" if coef != 1 else "X"
+        elif coef == 1:
+            return f"X^{degre}"
+        else:
+            return f"{coef}X^{degre}"
+
+
+    def __init__(self, *high_first):
+        # internal structure is a tuple of coeficients,
+        # index 0 being the constant part
+        # so we reverse the incoming parameters
+        def skip_first_nulls(coefs):
+            valid = False
+            for coef in coefs:
+                if coef:
+                    valid = True
+                if valid:
+                    yield coef
+        self.coefs = tuple(skip_first_nulls(high_first))[::-1]
+
+
+    def __repr__(self):
+        if not self.coefs:
+            return '0'
+        return " + ".join(reversed(
+            [self.repr_monomial(d, c) for (d, c) in enumerate(self.coefs) if c]))
+# @END@
+
+# @BEG@ name=polynomial latex_size=footnotesize continued=true
+    def _get_degree(self):
+        return 0 if not self.coefs else (len(self.coefs) - 1)
+    degree = property(_get_degree)
+
+
+    def __eq__(self, other):
+        return self.coefs == other.coefs
+
+
+    def __add__(self, other):
+        """add 2 Polynomial instances"""
+        # this interesting thing here is the use of zip_longest
+        # so that our resulting Polynomial has a degree that is the max
+        # of the degrees of our operands
+        # also note the use of a so-called splat operator
+        # beause we need to call e.g. Polynomial(1, 2, 3) and
+        # not Polynomial( [1, 2, 3])
+        small_first = [c1+c2
+                       for (c1, c2) in zip_longest(
+                               self.coefs, other.coefs, fillvalue=0)]
+        return Polynomial(*reversed(small_first))
+
+
+    def __mul__(self, other):
+        """multiply 2 polynomials"""
+        # a rather inefficient implementation
+        # - because accessing a list by index is inefficient
+        # just to illustrate product() and repeat()
+        result_degree = self.degree + other.degree + 1
+        result_coefs = list(repeat(0, result_degree))
+        for (i, c), (j, d) in product(
+                enumerate(self.coefs), enumerate(other.coefs)):
+            result_coefs[i+j] += c*d
+        return Polynomial(*reversed(result_coefs))
+# @END@
+
+
+# @BEG@ name=polynomial latex_size=footnotesize continued=true
+    def __call__(self, param):
+        """make instances callable"""
+        # this is an interesting idiom
+        # reduce allows to apply a 2-argument function
+        # on an iterable from left to right
+        # that is to say for example
+        # reduce(foo, [1, 2, 3, 4]) -> foo(1, foo(2, foo(3, 4))
+        # in this code the function object created
+        # with the lambda expression is called a closure
+        # it 'captures' the 'param' parameter in a function
+        # that takes 2 arguments
+        return reduce(lambda a, b: a*param + b, self.coefs[::-1])
+
+
+    def derivative(self):
+        """
+        the derivative is a polynomial as well
+        """
+        # 2 things are happening here
+        # (*) we use the count() iterator; this never terminates
+        #   except that it is embedded in a zip() that will
+        #   terminate when iterating over our own coefficients expires
+        # (*) here again observe the use of a splat operator
+
+        derived_coefs = (n * c for (n, c) in zip(
+                         count(1),
+                         self.coefs[1:]
+                        ))
+        return Polynomial(*derived_coefs)
+# @END@
+
+
+polynomial_scenarios = [
+    # build and display an instance
+    ClassScenario(
+        Args(),
+        ClassExpression("INSTANCE.degree"),
+    ),
+    ClassScenario(
+        Args(0),
+        ClassExpression("INSTANCE == CLASS() == CLASS(0, 0)"),
+    ),
+    ClassScenario(
+        Args(1),
+        ClassExpression("INSTANCE.degree"),
+        ClassExpression("CLASS() == CLASS(0) == INSTANCE * CLASS()")
+    ),
+    ClassScenario(
+        Args(1, 2, 3),
+        ClassExpression("INSTANCE.degree"),
+    ),
+    ClassScenario(Args(1, 0, 3, 0, 0)),
+    ClassScenario(
+        Args(0, 0, 1, 0, 3),
+        ClassExpression("INSTANCE == CLASS(1, 0, 3)"),
+        ),
+    ClassScenario(
+        # init arguments
+        Args(1, 2, 3),
+        ClassExpression('INSTANCE(10)'),
+        ClassExpression('INSTANCE(100)'),
+    ),
+    ClassScenario(
+        # init arguments
+        Args(1, 2, 3),
+        ClassExpression('INSTANCE.derivative()'),
+        ClassExpression('INSTANCE.derivative()(10)'),
+    ),
+    ClassScenario(
+        Args(1, 2, 3),
+        ClassExpression("INSTANCE + CLASS(3, 2, 1) == CLASS(0, 4, 4, 4)"),
+        ClassExpression("CLASS() * INSTANCE"),
+    ),
+    ClassScenario(
+        Args(1, 2, 3),
+        ClassExpression("INSTANCE + CLASS(1, 2, 3, 4) == CLASS(1, 3, 5, 7)"),
+        ClassExpression("INSTANCE + CLASS(4, 3, 2, 1) == CLASS(4, 4, 4, 4)"),
+    ),
+    # (3x2 + 2x + 1) * (x+2) = 3x3 + 8x2 + 5x + 2
+    ClassScenario(
+        Args(3, 2, 1),
+        ClassExpression("INSTANCE * CLASS() == CLASS()"),
+        ClassExpression("INSTANCE * CLASS(1) == INSTANCE"),
+        ClassExpression("INSTANCE * CLASS(1, 2) == CLASS(3, 8, 5, 2)"),
+    ),
+]
+
+exo_polynomial = ExerciseClass(
+    Polynomial, polynomial_scenarios,
+    nb_examples=0,
+    obj_name='P',
+    header_font_size='small',
+)
+
+
+class Polynomial_ko:
+
+    def __init__(self, *args):
+        self.coefs = args[::-1]
+
+    def repr(self):
+        return " + ".join(f"{c}X{d}" for c, d in zip(self.coefs, count()))
+
+@endcls_quaternion.py!@
+from nbautoeval import (
+    Args, ExerciseClass, ClassScenario, ClassExpression, ClassStatement)
+
+# @BEG@ name=quaternion latex_size=footnotesize
+def number_str(x):
+    if isinstance(x, int):
+        return f"{x}"
+    elif isinstance(x, float):
+        return f"{x:.1f}"
+
+class Quaternion:
+
+    # possible enhancement: we could also have decided to
+    # accept a single parameter, if int or float or complex
+    def __init__(self, a, b, c, d):
+        self.implem = (a, b, c, d)
+
+
+    def __repr__(self):
+        labels = ['', 'i', 'j', 'k']
+        # on prépare des morceaux comme '3', '2i', '4j', '5k'
+        # mais seulement si la dimension en question n'est pas nulle
+        parts = (f"{number_str(x)}{label}"
+                 for x, label in zip(self.implem, labels) if x)
+
+        # on les assemble avec un + au milieu
+        full = " + ".join(parts)
+
+        # si c'est vide c'est que self est nul
+        return full if full != "" else "0"
+# @END@
+
+
+# @BEG@ name=quaternion latex_size=footnotesize continued=true
+    # possible enhancement: accept other
+    # of builtin number types
+    def __add__(self, other):
+        """
+        implements q1 + q2
+        """
+        return Quaternion(
+            *(x+y for x, y in zip(self.implem, other.implem)))
+
+
+    # ditto: possible enhancement: accept other
+    # of builtin number types
+    def __mul__(self, other):
+        """
+        implements q1 * q2
+        """
+        a1, b1, c1, d1 = self.implem
+        a2, b2, c2, d2 = other.implem
+        a = a1 * a2 - b1 * b2 - c1 * c2 - d1 * d2
+        b = a1 * b2 + b1 * a2 + c1 * d2 - d1 * c2
+        c = a1 * c2 + c1 * a2 + d1 * b2 - b1 * d2
+        d = a1 * d2 + d1 * a2 + b1 * c2 - c1 * b2
+        return Quaternion(a, b, c, d)
+
+
+    def __eq__(self, other):
+        """
+        implements q1 == q2
+
+        here we have decided to allow for comparison
+        with a regular number
+        """
+        if isinstance(other, (bool, int, float)):
+            return self == Quaternion(other, 0, 0, 0)
+        elif isinstance(other, complex):
+            return self == Quaternion(other.real, other.imag, 0, 0)
+        elif isinstance(other, Quaternion):
+            return self.implem == other.implem
+        else:
+            return False
+# @END@
+
+quaternion_scenarios = [
+    ClassScenario(
+        Args(1, 0, 0, 0),
+        ClassExpression('INSTANCE == 1'),
+    ),
+    ClassScenario(
+        Args(0, 1, 0, 0),
+        ClassExpression('''# attention ici j c'est en fait notre i
+INSTANCE == 1j'''),
+    ),
+    ClassScenario(
+        Args(-1, 0, 0, 0),
+        ClassExpression(
+            'CLASS(0, 1, 0, 0) * CLASS(0, 1, 0, 0) == INSTANCE'
+        ),
+        ClassExpression(
+            'CLASS(0, 0, 1, 0) * CLASS(0, 0, 1, 0) == INSTANCE'
+        ),
+        ClassExpression(
+            'CLASS(0, 0, 0, 1) * CLASS(0, 0, 0, 1) == INSTANCE'
+        ),
+        ClassExpression(
+            'CLASS(0, 1, 0, 0) * CLASS(0, 0, 1, 0) == CLASS(0, 0, 0, 1)'
+        ),
+        ClassExpression(
+            'CLASS(0, 0, 1, 0) * CLASS(0, 0, 0, 1) == CLASS(0, 1, 0, 0)'
+        ),
+        ClassExpression(
+            'CLASS(0, 0, 0, 1) * CLASS(0, 1, 0, 0) == CLASS(0, 0, 1, 0)'
+        ),
+    ),
+    ClassScenario(
+        Args(0, 1, 0, 0),
+        ClassExpression(
+            'CLASS(0, 1, 0, 0) * CLASS(0, 0, 1, 0) == -1'
+        ),
+    ),
+]
+
+exo_quaternion = ExerciseClass(
+    Quaternion, quaternion_scenarios,
+    nb_examples=0,
+    obj_name='Q',
+    header_font_size='small',
+)
+
+@endcls_redirectors.py!@
+# pylint: disable=c0111, c0103
+
+import random
+import string
+
+
+from nbautoeval import (
+    Args, ExerciseClass, ClassScenario, ClassExpression, ClassStatement)
+
+
+def random_name():
+    choice = string.ascii_letters + '_'
+    length = random.randint(4, 6)
+    return "".join(random.choice(choice) for _ in range(length))
+
+def random_arg():
+    return random.randint(0, 100)
+
+
+
+# @BEG@ name=redirector1
+class Redirector1:
+    """
+    a class that redirects any attribute as a lowercase
+    dash-separated version of the attribute name
+    """
+    def __repr__(self):
+        return "redirector"
+
+    # desired behaviour is obtained by a simple
+    # invokation of __getattr__
+    # that is invoked each time an attribute is read
+    # but is found missing in the local namespace
+    def __getattr__(self, attribute_name):
+        return attribute_name.lower().replace('_', '-')
+# @END@
+
+redirector1_scenarios = [
+    # build and display an instance
+    ClassScenario(
+        Args(),
+        ClassExpression("INSTANCE.foo"),
+    ),
+    ClassScenario(
+        Args(),
+        ClassExpression("INSTANCE.Foo_Bar"),
+    ),
+]
+
+for r in range(3, 6):
+    redirector1_scenarios.append(
+        ClassScenario(
+            Args(),
+            ClassExpression(f"INSTANCE.{random_name()}")
+        ))
+
+exo_redirector1 = ExerciseClass(
+    Redirector1, redirector1_scenarios,
+    nb_examples=2,
+    obj_name='R',
+)
+
+
+class Redirector1_ko:
+
+    def __init__(self):
+        self.foo = 'foo'
+        self.Foo_Bar = 'foo-bar'
+
+    def __repr__(self):
+        return "redirector"
+
+
+
+
+
+
+# @BEG@ name=redirector2
+class Redirector2:
+    """
+    a class that redirects any attribute as a method that returns
+    a string made of (*) the redirector's id, (*) the attribute name,
+    and (*) the argument passed to the method
+    """
+
+    def __init__(self, id):
+        self.id = id
+
+    def __repr__(self):
+        return f"Redirector2({self.id})"
+
+    # in this version, we rely on the same special method
+    # but this time __getattr__ needs to return a method
+    # that accepts one argument
+
+    def __getattr__(self, methodname):
+        # doit retourner une 'bound method'
+        # du coup on ne recevra pas `self` comme premier paramètre
+        def synthetic_method(argument):
+            return f"{self.id} -> {methodname}({argument})"
+        # optionnel, voir chapitre sur décorateurs
+        synthetic_method.__name__ = methodname
+        return synthetic_method
+# @END@
+
+
+redirector2_scenarios = [
+    # build and display an instance
+    ClassScenario(
+        Args(1),
+        ClassExpression("INSTANCE.foo(10)"),
+    ),
+    ClassScenario(
+        Args(2),
+        ClassExpression("INSTANCE.bar(20)"),
+    ),
+]
+
+for r in range(3, 6):
+    redirector2_scenarios.append(
+        ClassScenario(
+            Args(f"{r}"),
+            ClassExpression(f"INSTANCE.{random_name()}({random_arg()})")
+        ))
+
+exo_redirector2 = ExerciseClass(
+    Redirector2, redirector2_scenarios,
+    nb_examples=2,
+    obj_name='R',
+)
+
+
+class Redirector2_ko:
+
+    def __init__(self, name):
+        self.name = name
+
+    def __repr__(self):
+        return f"Redirector2({self.name})"
+
+    def foo(self, argument):
+        return f"{self.name} -> foo({argument})"
+
+@endcls_roman.py!@
+from nbautoeval import (
+    Args, ExerciseClass, ClassScenario, ClassExpression, ClassStatement)
+
+# @BEG@ name=roman latex_size=footnotesize
+import functools
+from math import nan, isnan
+
+
+@functools.total_ordering
+class Roman:
+    """
+    a class to implement limited arithmetics on roman numerals
+
+    example:
+        >>> r1, r2 = Roman(2020), Roman('XXII')
+        >>> r1
+        MMXX=2020
+        >>> r2
+        XXII=22
+        >>> r1-r2
+        MCMXCVIII=1998
+    """
+
+    def __init__(self, letters_or_integer):
+        if isinstance(letters_or_integer, (int, str)):
+            try:
+                # pour gérer les chaînes de caractères
+                # représentant un nombre entier
+                # ex. : convertir '123' en l'entier 123
+                integer = int(letters_or_integer)
+            # si la conversion échoue, c'est qu'on a affaire à une str
+            except ValueError:
+                letters = letters_or_integer.upper()
+                self._decimal = Roman.roman_to_decimal(letters)
+                self._roman = 'N' if isnan(self._decimal) else letters
+            # sinon c'est que c'est bien un entier
+            else:
+                self._roman = Roman.decimal_to_roman(integer)
+                self._decimal = nan if self._roman == 'N' else integer
+        elif isnan(letters_or_integer):
+            self._decimal = nan
+            self._roman = 'N'
+        else:
+            raise TypeError(
+              f"Cannot initialize Roman from type {type(letters_or_integer)}")
+# @END@
+
+# @BEG@ name=roman latex_size=footnotesize continued=true
+    def __repr__(self):
+        return f"{self._roman}={self._decimal}"
+
+    def __str__(self):
+        return self._roman
+
+    def __eq__(self, other):
+        return self._decimal == other._decimal
+
+    def __lt__(self, other):
+        return self._decimal < other._decimal
+
+    def __add__(self, other):
+        return Roman(self._decimal + other._decimal)
+
+    def __sub__(self, other):
+        return Roman(self._decimal - other._decimal)
+
+    def __int__(self):
+        return self._decimal
+# @END@
+
+# @BEG@ name=roman latex_size=footnotesize continued=true
+    # table de correspondance des nombres décimaux et
+    # des nombres romains clés
+    symbols = {
+        1: 'I',
+        5: 'V',
+        10: 'X',
+        50: 'L',
+        100: 'C',
+        500: 'D',
+        1000: 'M'
+    }
+
+    @staticmethod
+    def decimal_to_roman(decimal: int) ->str:
+        """
+        Conversion from decimal number to roman number.
+        """
+        if decimal <= 0:
+            return 'N'
+
+        # la chaîne de caractères résultante, construite étape par étape
+        roman = ""
+        # les puissances de 10 successives
+        tens = 0
+
+        try:
+            while decimal:
+                unit = decimal % 10
+                if unit in (1, 2, 3):
+                    # mettre unit fois le symbole de
+                    # la puissance de 10 correspondante
+                    roman = Roman.symbols[10 ** tens] * unit + roman
+                elif 4 <= unit <= 8:
+                    # mettre le symbole de 5 fois la puissance de 10
+                    # correspondante précédé ou suivi du symbole de la
+                    # puissance de 10 correspondante
+                    roman = (Roman.symbols[10 ** tens] * (5 - unit)
+                             + Roman.symbols[5 * 10 ** tens]
+                             + Roman.symbols[10 ** tens] * (unit - 5)
+                             + roman)
+                elif unit == 9:
+                    # le symbole de la puissance de 10 correspondante
+                    # suivi de la puissance de 10 suivante
+                    roman = (Roman.symbols[10 ** tens]
+                             + Roman.symbols[10 ** (tens + 1)]
+                             + roman)
+                tens += 1
+                decimal //= 10
+        except KeyError:
+            return 'N'
+        else:
+            return roman
+# @END@
+
+# @BEG@ name=roman latex_size=footnotesize continued=true
+    # table de correspondance inversée
+    # isymbols = inverted symbols
+    isymbols = {v: k for k, v in symbols.items()}
+
+    @staticmethod
+    def roman_to_decimal(roman: str) ->int:
+        """
+        Conversion from roman number to decimal number
+        """
+        if not roman:
+            return nan
+
+        # la valeur décimale résultante, construite petit à petit
+        decimal = 0
+        # pour stocker le caractère précédent
+        previous = None
+
+        try:
+            for r in roman:
+                # Si le symbole précédent a une valeur moins grande,
+                # il faut l'enlever une fois parce qu'on l'a compté
+                # au coup précédent alors qu'il ne fallait pas,
+                # et l'enlever une seconde fois parce qu'il faut
+                # le soustraire à la valeur du symbole courant.
+                # C'est ainsi que fonctionne le système numérique romain.
+                if previous and Roman.isymbols[previous] < Roman.isymbols[r]:
+                    if Roman.isymbols[r] // Roman.isymbols[previous] in (5, 10):
+                        decimal -= 2 * Roman.isymbols[previous]
+                    else:
+                        return nan
+                decimal += Roman.isymbols[r]
+                previous = r
+        except KeyError:
+            return nan
+        else:
+            return decimal
+# @END@
+
+roman_scenarios = [
+    ClassScenario( Args(2020), ),
+    ClassScenario(
+        Args('MMXX'),
+        ClassExpression("INSTANCE == CLASS(2020)"),
+    ),
+    ClassScenario(
+        Args('MMXIX'),
+        ClassExpression("INSTANCE + CLASS(19) == CLASS(2038)"),
+        ClassExpression("INSTANCE - CLASS('MCMXCIX') == CLASS(20)"),
+    ),
+    ClassScenario(
+        Args(5000),
+    ),
+    ClassScenario(
+        Args(5000),
+        ClassExpression("INSTANCE == CLASS(5000)"),
+    ),
+    ClassScenario(
+        Args(2500),
+        ClassExpression("INSTANCE + CLASS(2500)== CLASS(5000)"),
+    ),
+    ClassScenario(
+        Args(1500),
+        ClassExpression("int(INSTANCE) + 4500 == 6000")
+    )
+]
+
+# peut-être utile pour debugger ?
+raw = """
+MCMXXXIX=1939
+MCMXL=1940
+MCMXLI=1941
+MCMXLII=1942
+MCMXLIII=1943
+MCMXLIV=1944
+MCMXLV=1945
+MCMXLVI=1946
+MCMXLVII=1947
+MCMXLVIII=1948
+MCMXLIX=1949
+MCML=1950
+MCMLI=1951
+MCMLII=1952
+MCMLIII=1953
+MCMLIV=1954
+MCMLV=1955
+MCMLVI=1956
+MCMLVII=1957
+MCMLVIII=1958
+MCMLIX=1959
+MCMLX=1960
+MCMLXI=1961
+MCMXCVIII=1998
+MCMXCIX=1999
+MM=2000
+MMI=2001
+MMII=2002
+MMIII=2003
+MMIV=2004
+MMV=2005
+MMVI=2006
+MMVII=2007
+MMVIII=2008
+MMIX=2009
+MMX=2010
+MMXI=2011
+MMXII=2012
+MMXIII=2013
+MMXIV=2014
+MMXV=2015
+MMXVI=2016
+MMXVII=2017
+MMXVIII=2018
+MMXIX=2019
+MMXX=2020
+MMXXI=2021
+MMXXII=2022
+MMXXIII=2023
+MMXXIV=2024
+MMXXV=2025
+MMXXVI=2026
+MMXXVII=2027
+MMXXVIII=2028
+"""
+
+for line in raw.split():
+    letters, number = line.split('=')
+    roman_scenarios.append(
+        ClassScenario(
+            Args(letters),
+            ClassExpression(f"INSTANCE == CLASS({number})"),
+        ))
+    roman_scenarios.append(
+        ClassScenario(
+            Args(number),
+            ClassExpression(f"INSTANCE == CLASS('{letters}')"),
+        ))
+
+exo_roman = ExerciseClass(
+    Roman, roman_scenarios,
+    nb_examples=0,
+    obj_name='R',
+    header_font_size='small',
+)
+
+@endcls_temperature.py!@
+# pylint: disable=c0111, c0103
+
+from nbautoeval import (
+    Args, ExerciseClass, ClassScenario, ClassExpression, ClassStatement)
+
+# @BEG@ name=temperature
+class Temperature:
+    """
+    a class that models temperatures
+
+    example:
+       >>> k = Temperature(kelvin=0); k
+       0 °K
+       >>> c = Temperature(celsius=0); c
+       -273 °K
+       >>> c.kelvin
+       -273
+       >>> k.celsius
+       273
+    """
+
+    KELVIN = 273
+
+    def __init__(self, *,
+                 # that star sign above means that any parameter
+                 # **MUST BE NAMED**, and that one cannot call
+                 # e.g. Temperature(10)
+                 kelvin=None, celsius=None):
+        # our unique internal data is _kelvin
+        # but even from the constructor we'll
+        # access it **only through properties**
+        if kelvin is None and celsius is None:
+            # this calls _set_kelvin()
+            kelvin = 0
+        if kelvin is not None and celsius is not None:
+            raise ValueError("Temperature wants only one among kelvin and celsius")
+        if kelvin is not None:
+            # this calls _set_kelvin()
+            self.kelvin = kelvin
+        else:
+            # this calls _set_celsius()
+            self.celsius = celsius
+# @END@
+
+
+# @BEG@ name=temperature continued=true
+    def __repr__(self):
+        return f"{self._kelvin:d}°"
+
+
+    def __eq__(self, other):
+        return self._kelvin == other._kelvin
+
+
+    def __sub__(self, other):
+        return self._kelvin - other.kelvin
+
+
+    # PROPERTIES
+
+    def _get_kelvin(self):
+        return self._kelvin
+    def _set_kelvin(self, kelvin):
+        if kelvin < 0:
+            raise ValueError(f"Temperature needs a positive kelvin (got {kelvin}K)")
+        self._kelvin = kelvin
+
+    kelvin = property(_get_kelvin, _set_kelvin)
+
+
+    def _get_celsius(self):
+        # celsius + KELVIN = kelvin
+        return self._kelvin - self.KELVIN
+    def _set_celsius(self, celsius):
+        self.kelvin = celsius + self.KELVIN
+
+    celsius = property(_get_celsius, _set_celsius)
+
+# @END@
+
+
+temperature_scenarios = [
+    # build and display an instance
+    ClassScenario(
+        Args(),
+        ClassExpression("INSTANCE.kelvin"),
+        ClassExpression("INSTANCE.celsius"),
+    ),
+    ClassScenario(
+        Args(kelvin=0),
+        ClassExpression("INSTANCE.kelvin"),
+        ClassExpression("INSTANCE.celsius"),
+    ),
+    ClassScenario(
+        Args(celsius=0),
+        ClassExpression("INSTANCE.kelvin"),
+        ClassExpression("INSTANCE.celsius"),
+    ),
+    ClassScenario(
+        Args(kelvin=0),
+        ClassExpression("INSTANCE.kelvin"),
+        ClassExpression("INSTANCE.celsius"),
+    ),
+]
+
+exo_temperature = ExerciseClass(
+    Temperature, temperature_scenarios,
+    nb_examples=0,
+    obj_name='temp',
+)
+
+
+class Temperature_ko:
+
+    def __init__(self, **kwds):
+        self._kelvin = 200
+
+    def __repr__(self):
+        return f"{self._kelvin:2f}°"
+
+@endexo_alternat.py!@
+from nbautoeval import Args, ExerciseFunction, PPrintRenderer
+
+
+from .exo_aplatir import aplatir
+
+# @BEG@ name=alternat
+def alternat(iter1, iter2):
+    """
+    renvoie une liste des éléments
+    pris alternativement dans iter1 et dans iter2
+    """
+    # pour réaliser l'alternance on peut combiner zip avec aplatir
+    # telle qu'on vient de la réaliser
+    return aplatir(zip(iter1, iter2))
+# @END@
+
+
+# @BEG@ name=alternat more=bis
+def alternat_bis(iter1, iter2):
+    """
+    une deuxième version de alternat
+    """
+    # la même idée mais directement, sans utiliser aplatir
+    return [element for conteneur in zip(iter1, iter2)
+            for element in conteneur]
+# @END@
+
+
+alternat_inputs = [
+    Args((1, 2), ('a', 'b') ),
+    Args((1, 2, 3), ('a', 'b', 'c')),
+    Args((1, (2, 3)), ('a', ['b', 'c'])),
+]
+
+
+exo_alternat = ExerciseFunction(
+    alternat, alternat_inputs,
+    nb_examples=2,
+    result_renderer=PPrintRenderer(width=16),
+)
+
+
+def alternat_ko(iter1, iter2):
+    return iter1 + iter2
+
+@endexo_aplatir.py!@
+from nbautoeval import Args, ExerciseFunction, CallRenderer, PPrintRenderer
+
+
+# @BEG@ name=aplatir
+def aplatir(conteneurs):
+    "retourne une liste des éléments des éléments de conteneurs"
+    # on peut concaténer les éléments de deuxième niveau
+    # par une simple imbrication de deux compréhensions de liste
+    return [element for conteneur in conteneurs for element in conteneur]
+# @END@
+
+
+def aplatir_ko(conteneurs):
+    return conteneurs
+
+
+aplatir_inputs = [
+    Args([]),
+    Args([(1,)]),
+    Args(([1],)),
+    Args([(0, 6, 2), [1, ('a', 4), 5]]),
+    Args(([ 1, [2, 3]], ('a', 'b', 'c'))),
+    Args(([ 1, 6 ], ('c', 'b'), [2, 3])),
+    Args((( 1, [2, 3]), [], ('a'), ['b', 'c'])),
+]
+
+
+exo_aplatir = ExerciseFunction(
+    aplatir, aplatir_inputs, nb_examples=0,
+#    call_renderer=CallRenderer(show_function=False),
+    result_renderer=PPrintRenderer(width=20),
+    font_size='x-small',
+)
+
+@endexo_carre.py!@
+from nbautoeval import Args, ExerciseFunction, PPrintCallRenderer
+
+
+##############################
+# @BEG@ name=carre
+def carre(line):
+    # on enlève les espaces et les tabulations
+    line = line.replace(' ', '').replace('\t','')
+    # la ligne suivante fait le plus gros du travail
+    # d'abord on appelle split() pour découper selon les ';'
+    # dans le cas où on a des ';' en trop, on obtient dans le
+    #    résultat du split un 'token' vide, que l'on ignore
+    #    ici avec la clause 'if token'
+    # enfin on convertit tous les tokens restants en entiers avec int()
+    entiers = [int(token) for token in line.split(";")
+               # en éliminant les entrées vides qui correspondent
+               # à des point-virgules en trop
+               if token]
+    # il n'y a plus qu'à mettre au carré, retraduire en strings,
+    # et à recoudre le tout avec join et ':'
+    return ":".join([str(entier**2) for entier in entiers])
+# @END@
+
+
+# @BEG@ name=carre more=bis
+def carre_bis(line):
+    # pareil mais avec, à la place des compréhensions
+    # des expressions génératrices que - rassurez-vous -
+    # l'on n'a pas vues encore, on en parlera en semaine 5
+    # le point que je veux illustrer ici c'est que c'est
+    # exactement le même code mais avec () au lieu de []
+    line = line.replace(' ', '').replace('\t','')
+    entiers = (int(token) for token in line.split(";")
+               if token)
+    return ":".join(str(entier**2) for entier in entiers)
+# @END@
+
+
+# @BEG@ name=carre more=ter
+def carre_ter(ligne):
+    # On extrait toutes les valeurs séparées par des points-
+    # virgules, on les nettoie avec la méthode strip
+    # et on stocke le résultat dans une liste
+    liste_valeurs = [t.strip() for t in ligne.split(';')]
+    # Il ne reste plus qu'à calculer les carrés pour les
+    # valeurs valides (non vides) et les remettre dans une str
+    return ":".join([str(int(v)**2) for v in liste_valeurs if v])
+# @END@
+
+
+inputs_carre = [
+    Args("1;2;3"),
+    Args(" 2 ;  5;6;"),
+    Args("; 12 ;  -23;\t60; 1\t"),
+    Args("; -12 ; ; -23; 1 ;;\t"),
+]
+
+
+exo_carre = ExerciseFunction(
+    carre, inputs_carre,
+    nb_examples=0,
+    call_renderer=PPrintCallRenderer(show_function=False, width=40)
+    )
+
+
+def carre_ko(s):
+    return ":".join( str(i**2) for i in
+                     (int(token) for token in s.split(';')))
+
+@endexo_checkers.py!@
+# pylint: disable=c0111
+import numpy as np
+
+from nbautoeval import Args, ExerciseFunctionNumpy
+
+
+# @BEG@ name=checkers
+def checkers(size, corner_0_0=True):
+    """
+    Un damier
+    le coin (0, 0) vaut 1 ou 0 selon corner_0_0
+    se souvenir que False == 0 et True == 1
+
+    credits: JeF29 pour avoir suggéré une simple
+    addition plutôt qu'un xor
+    """
+    # on peut voir le damier comme une fonction sur
+    # les coordonnées, du genre (i + j) % 2
+    # pour choisir le coin, on ajoute avant de faire le % 2
+    I, J = np.indices((size, size))
+    return (I + J + corner_0_0) % 2
+# @END@
+
+
+# @BEG@ name=checkers more=2
+def checkers_2(size, corner_0_0=True):
+    """
+    sur une ligne, avec
+    * sum() pour l'addition I + J
+
+    et, pour les illustrer un petit, les opérateurs bit-wise:
+    * et logique (&) pour le modulo 2
+    * et xor (^) pour inverser
+
+    credits: j4l4y
+    """
+    # avec sum() sur indices()
+    # on peut tout faire en une ligne:
+    return sum(np.indices((size, size))) & 1 ^ corner_0_0
+# @END@
+
+# @BEG@ name=checkers more=3
+def checkers_3(size, corner_0_0=True):
+    """
+    Une autre approche complètement
+    """
+    # on part de zéro
+    result = np.zeros(shape=(size, size), dtype=int_)
+    # on remplit les cases à 1 en deux fois
+    # avec un slicing astucieux; c'est le ::2 qui fait le travail
+    result[1::2, 0::2] = 1
+    result[0::2, 1::2] = 1
+    # encore une autre façon de renverser,
+    # plutôt que le xor, puisque False == 0 et True == 1
+    if corner_0_0:
+        result = 1 - result
+    return result
+# @END@
+
+# @BEG@ name=checkers more=4
+def checkers_4(size, corner_0_0=True):
+    """
+    Et encore une autre, sans doute pas très lisible
+    mais très astucieuse
+
+    credits: j4l4y
+    """
+    # une utilisation très astucieuse de resize,
+    # broadcasting, décalage, bravo !
+    return (np.resize((corner_0_0, 1-corner_0_0),
+                      (1, size))
+            ^ np.arange(size)[:, np.newaxis] & 1)
+# @END@
+
+# une solution qui NE MARCHE PAS pour les tailles paires
+def checkers_ko_2(size, corner_0_0=True):
+    return np.array([(i+corner_0_0) % 2 for i in range(size * size)],
+                    dtype=np.int_).reshape(size, size)
+
+
+# faux parce qu'on ignore corner_0_0
+# voir aussi si la correction est contente avec des float
+def checkers_ko(size, ignored=True):
+    result = np.ones(shape=(size, size), dtype=float)
+    # on remplit les cases blanches en deux fois
+    result[1::2, 0::2] = 0
+    result[0::2, 1::2] = 0
+    return result
+
+
+checkers_inputs = [
+    Args(3),
+    Args(3, False),
+    Args(1),
+    Args(2),
+    Args(4),
+]
+
+
+exo_checkers = ExerciseFunctionNumpy(
+    checkers,
+    checkers_inputs,
+    nb_examples=2,
+)
+
+@endexo_compare_all.py!@
+from nbautoeval import Args, ExerciseFunction, CallRenderer
+
+from functools import reduce
+
+
+# @BEG@ name=compare_all
+def compare_all(fun1, fun2, entrees):
+    """
+    retourne une liste de booléens, un par entree dans entrees
+    qui indique si fun1(entree) == fun2(entree)
+    """
+    # on vérifie pour chaque entrée si f et g retournent
+    # des résultats égaux avec ==
+    # et on assemble le tout avec une comprehension de liste
+    return [fun1(entree) == fun2(entree) for entree in entrees]
+# @END@
+
+
+
+compare_all_inputs = []
+
+# factoriel
+from operator import mul
+def fact(n):
+    "une version de factoriel à base de reduce"
+    return reduce(mul, range(1, n+1), 1)
+from math import factorial
+fact_inputs = [0, 1, 5]
+
+compare_all_inputs.append(Args(fact, factorial, fact_inputs))
+
+def broken_fact(n):
+    return 0 if n <= 0 \
+        else 1 if n == 1 \
+             else n*fact(n-1)
+
+compare_all_inputs.append(Args(broken_fact, factorial, fact_inputs))
+
+#################### the exercice instance
+exo_compare_all = ExerciseFunction(
+    compare_all, compare_all_inputs,
+    nb_examples = 2,
+    call_renderer=CallRenderer(show_function=False),
+)
+
+
+def compare_all_ko(*args):
+    return [not x for x in compare_all(*args)]
+
+@endexo_compare_args.py!@
+from nbautoeval import Args, ExerciseFunction, CallRenderer
+
+
+# @BEG@ name=compare_args
+def compare_args(fun1, fun2, arg_tuples):
+    """
+    retourne une liste de booléens, un par entree dans entrees
+    qui indique si fun1(*tuple) == fun2(*tuple)
+    """
+    # c'est presque exactement comme compare_all, sauf qu'on s'attend
+    # à recevoir une liste de tuples d'arguments, qu'on applique
+    # aux deux fonctions avec la forme * au lieu de les passer directement
+    return [fun1(*arg) == fun2(*arg) for arg in arg_tuples]
+# @END@
+
+
+#################### les jeux de données
+compare_args_inputs = []
+
+from functools import reduce
+from math import factorial
+from operator import add, mul
+
+########## dataset #1
+fact_inputs = [(0,), (1,), (5,),]
+
+def broken_fact(n):
+    return 0 if n <= 0 \
+        else 1 if n == 1 \
+             else n*fact(n-1)
+
+compare_args_inputs.append(Args(broken_fact, factorial, fact_inputs))
+
+########## dataset #2
+# addition can work too
+add_inputs = [(2, 3), (0, 4), (4, 5)]
+
+def plus_broken(x1, x2):
+    if x1 != 0:
+        return x1 + x2
+    else:
+        return 1 + x2
+
+compare_args_inputs.append(Args(add, plus_broken, add_inputs))
+
+########## dataset #3
+# factoriel is still valid
+
+def fact(n):
+    "une version de factoriel à base de reduce"
+    return reduce(mul, range(1, n+1), 1)
+
+compare_args_inputs.append(Args(fact, factorial, fact_inputs))
+
+########## dataset #4
+
+def plus(x1, x2):
+    return x1 + x2
+
+compare_args_inputs.append(Args(add, plus, add_inputs))
+
+#################### the exercise instance
+exo_compare_args = ExerciseFunction(
+    compare_args, compare_args_inputs,
+    nb_examples=2,
+    call_renderer=CallRenderer(show_function=False),
+    font_size='x-small',
+)
+
+
+def compare_args_ko(*args, **keywords):
+    return [not x for x in compare_args(*args, **keywords)]
+
+@endexo_comptage.py!@
+import os
+
+from nbautoeval import Args, ExerciseFunction, PPrintCallRenderer, MultilineRenderer
+
+####################
+# the function as it is specified does not fit in the 'exercice' framework
+# so here create helpers to make all this compliant
+def file_contents(filename):
+    try:
+        with open(filename, encoding='utf-8') as in_file:
+            return in_file.read()
+    except:
+        return ""
+
+# this decorator does what it takes to transform a student-written function
+# into something that exercice/correction_table can deal with
+def exercice_compliant(fun):
+    def wrapped(in_name, out_name):
+        # clean up output (in case the function does not create it
+        try:
+            os.unlink(out_name)
+        except:
+            pass
+        # run
+        fun(in_name, out_name)
+        # return output's contents
+        return file_contents(out_name)
+    wrapped.__name__ = fun.__name__
+    wrapped.__doc__ = fun.__doc__
+    return wrapped
+
+### might end up in exercice if there's enough interest
+from IPython.display import HTML
+
+# on lance la fonction dans un fichier temporaire et on le montre
+def show_comptage(in_name, out_name, comptage, suffix):
+    out_name += suffix
+    comptage(in_name, out_name)
+    try:
+        in_file, out_file = file_contents(in_name), file_contents(out_name)
+        os.unlink(out_name)
+    except OSError:
+        print("Votre fonction ne semble pas créer le fichier de sortie")
+        return
+    html = ""
+    html += "<table>"
+    html += "<tr><th>Entrée</th></tr>"
+    for line in in_file.split("\n"):
+        html += "<tr><td>{}</td></tr>".format(line)
+    html += "<tr><th>Sortie</th></tr>"
+    for line in out_file.split("\n"):
+        html += "<tr><td>{}</td></tr>".format(line)
+    html += "</table>"
+    return HTML(html)
+
+@exercice_compliant
+# @BEG@ name=comptage
+def comptage(in_filename, out_filename):
+    """
+    retranscrit le fichier in_filename dans le fichier out_filename
+    en ajoutant des annotations sur les nombres de lignes, de mots
+    et de caractères
+    """
+    # on ouvre le fichier d'entrée en lecture
+    with open(in_filename, encoding='utf-8') as in_file:
+        # on ouvre la sortie en écriture
+        with open(out_filename, 'w', encoding='utf-8') as out_file:
+            lineno = 1
+            # pour toutes les lignes du fichier d'entrée
+            # le numéro de ligne commence à 1
+            for line in in_file:
+                # autant de mots que d'éléments dans split()
+                nb_words = len(line.split())
+                # autant de caractères que d'éléments dans la ligne
+                nb_chars = len(line)
+                # on écrit la ligne de sortie; pas besoin
+                # de newline (\n) car line en a déjà un
+                out_file.write(f"{lineno}:{nb_words}:{nb_chars}:{line}")
+                lineno += 1
+# @END@
+
+@exercice_compliant
+# @BEG@ name=comptage more=bis
+def comptage_bis(in_filename, out_filename):
+    """
+    un peu plus pythonique avec enumerate
+    """
+    with open(in_filename, encoding='utf-8') as in_file:
+        with open(out_filename, 'w', encoding='utf-8') as out_file:
+            # enumerate(.., 1) pour commencer avec une ligne
+            # numérotée 1 et pas 0
+            for lineno, line in enumerate(in_file, 1):
+                # une astuce : si on met deux chaines
+                # collées comme ceci elle sont concaténées
+                # et on n'a pas besoin de mettre de backslash
+                # puisqu'on est dans des parenthèses
+                out_file.write(f"{lineno}:{len(line.split())}:"
+                               f"{len(line)}:{line}")
+# @END@
+
+@exercice_compliant
+# @BEG@ name=comptage more=ter
+def comptage_ter(in_filename, out_filename):
+    """
+    pareil mais avec un seul with
+    """
+    with open(in_filename, encoding='utf-8') as in_file, \
+         open(out_filename, 'w', encoding='utf-8') as out_file:
+        for lineno, line in enumerate(in_file, 1):
+            out_file.write(f"{lineno}:{len(line.split())}:"
+                           f"{len(line)}:{line}")
+# @END@
+
+@exercice_compliant
+# @BEG@ name=comptage more=quater
+def comptage_quater(in_filename, out_filename):
+    """
+    si on est sûr que les séparateurs restent tous identiques,
+    on peut écrire cette fonction en utilisant la méthode join
+    en conjonction avec un tuple qui est un itérable
+    pour ne pas répéter le séparateur
+    """
+    with open(in_filename, encoding="UTF-8") as in_file, \
+         open(out_filename, mode='w', encoding="UTF-8") as out_file:
+        for line_no, line in enumerate(in_file, 1):
+            out_file.write(":".join((str(line_no), str(len(line.split())),
+              str(len(line)), line)))
+# @END@
+
+
+
+def comptage_ko(in_filename, out_filename):
+    with open(in_filename) as in_file:
+        with open(out_filename, 'w') as out_file:
+            for lineno, line in enumerate(in_file):
+                out_file.write(f"{lineno}:{len(line.split())}:"
+                             f"{len(line)}:{line}")
+
+# on passe ceci à ExerciseFunction donc pas besoin de rajouter les **keywords
+comptage_args = [
+    Args('data/romeo_and_juliet.txt', 'romeo_and_juliet.out'),
+    Args('data/lorem_ipsum.txt', 'lorem_ipsum.out'),
+    Args('data/une_charogne_unicode.txt', 'une_charogne_unicode.out'),
+]
+
+class ExoComptage(ExerciseFunction):
+
+    def correction(self, student_comptage):
+        # call the decorator on the student code
+        return ExerciseFunction.correction(self, exercice_compliant(student_comptage))
+
+    # on recherche les noms des fichers d'entrée et de sortie
+    # à utiliser pour l'exemple (ou le debug, on prend le même)
+    # associés au premier jeu de données (self.datasets[0])
+    # et là-dedans il nous faut regarder dans .args qui va contenir
+    # un tuple avec les deux valeurs qu'on recherche
+    def example(self):
+        (in_file, out_file) = self.datasets[0].args
+        return show_comptage(in_file, out_file, comptage=comptage, suffix=".ok")
+
+    def debug(self, student_comptage):
+        (in_file, out_file) = self.datasets[0].args
+        return show_comptage(in_file, out_file, comptage=student_comptage, suffix="")
+
+
+exo_comptage = ExoComptage(
+    comptage, comptage_args,
+    font_size='xx-small',
+    call_renderer=PPrintCallRenderer(width=20),
+    result_renderer=MultilineRenderer(),
+)
+
+@endexo_decode_zen.py!@
+from nbautoeval import Args, ExerciseFunction, MultilineRenderer
+
+
+# @BEG@ name=decode_zen no_example=skip
+# le module this est implémenté comme une petite énigme
+#
+# comme le laissent entrevoir les indices, on y trouve
+# (*) dans l'attribut 's' une version encodée du manifeste
+# (*) dans l'attribut 'd' le code à utiliser pour décoder
+#
+# ce qui veut dire qu'en première approximation, on pourrait
+# énumérer les caractères du manifeste en faisant
+# (this.d[c] for c in this.s)
+#
+# mais ce serait le cas seulement si le code agissait sur
+# tous les caractères; mais ce n'est pas le cas, il faut
+# laisser intacts les caractères de this.s qui ne sont pas
+# dans this.d
+
+def decode_zen(this_module):
+    """
+    décode le zen de python à partir du module this
+    """
+    # la version encodée du manifeste
+    encoded = this_module.s
+    # le dictionnaire qui implémente le code
+    code = this_module.d
+    # si un caractère est dans le code, on applique le code
+    # sinon on garde le caractère tel quel
+    # aussi, on appelle 'join' pour refaire une chaîne à partir
+    # de la liste des caractères décodés
+    return ''.join(code[c] if c in code else c for c in encoded)
+# @END@
+
+
+# @BEG@ name=decode_zen more=bis
+# une autre version un peu plus courte
+#
+# on utilise la méthode get d'un dictionnaire,
+# qui permet de spécifier (en second argument)
+# quelle valeur on veut utiliser dans les cas où la
+# clé n'est pas présente dans le dictionnaire
+#
+# dict.get(key, default)
+# retourne dict[key] si elle est présente, et default sinon
+
+def decode_zen_bis(this_module):
+    """
+    une autre version, un peu plus courte
+    """
+    return "".join(this_module.d.get(c, c) for c in this_module.s)
+# @END@
+
+# @BEG@ name=decode_zen more=ter
+# une dernière version utilisant les fonctions ad hoc
+# https://docs.python.org/3/library/stdtypes.html#str.translate
+# et https://docs.python.org/3/library/stdtypes.html#str.maketrans
+
+def decode_zen_ter(this_module):
+    """
+    cette version utilise les fonctions ad hoc de la classe str
+    """
+    # Le dictionnaire this_module.d n'est pas utilisable directement,
+    # il faut faire la transformation fournie par str.maketrans
+    # car la fonction translate attend comme clés des nombres
+    # représentant la valeur Unicode des caractères.
+    # Or this_module.d a comme clés les caractères à décoder
+    # et non leur valeur Unicode.
+    return this_module.s.translate(str.maketrans(this_module.d))
+# @END@
+
+
+import this
+
+class ExoDecodeZen(ExerciseFunction):
+    def correction(self, student_decode_zen):
+        args_obj = Args(this)
+        self.datasets = [ args_obj ]
+        return ExerciseFunction.correction(self, student_decode_zen)
+
+    def resultat(self, this):
+        return self.solution(this)
+
+# cannot copy nor deepcopy a module
+exo_decode_zen = ExoDecodeZen(
+    decode_zen, "inputs_gets_overridden",
+    copy_mode='none',
+    result_renderer=MultilineRenderer(),
+    font_size='xx-small',
+)
+
+
+
+def decode_zen_ko(this_module):
+    return "".join([this_module.d.get(c, ' ') for c in this_module.s])
+
+@endexo_dice.py!@
+# pylint: disable=c0111
+import numpy as np
+
+from nbautoeval import Args, ExerciseFunctionNumpy
+
+# @BEG@ name=dice
+def dice(target, nb_dice=2, nb_sides=6):
+    """
+    Pour un jeu où on lance `nb_dice` dés qui ont chacun `sides` faces,
+    quel est le nombre de tirages dont la somme des dés fasse `target`
+
+    Version force brute, il y a bien sûr des outils mathématiques
+    pour obtenir une réponse beaucoup plus rapidement
+
+    Toutes les solutions procèdent en deux étapes
+
+    * calcul de l'hypercube qui énumère les tirages,
+      et calcule la somme des dés pour chacun de ces tirages
+    * trouver le nombre de points dans le cube où la somme des dés
+      correspond à ce qu'on cherche
+
+    les deux étapes sont indépendantes, et peuvent donc être mélangées
+    entre les solutions
+    """
+
+    # pour élaborer le cube, on procède par broadcating
+    # on commence avec un simple vecteur de shape (nb_sides,) - e.g. de 1 à 6
+    # on lui ajoute lui-même mais avec une forme (nb_sides, 1) - en colonne donc
+    # et ainsi de suite avec
+    # shape=(nb_sides, 1, 1) pour la dimension 3,
+    # shape=(nb_sides, 1, 1, 1) pour la dimension 4
+    sides = np.arange(1, nb_sides+1)
+    cube = sides
+    # une liste plutôt qu'un tuple pour décrire la shape,
+    # car on va y ajouter '1' à chaque tour
+    shape = [nb_sides]
+    # on a déjà un dé
+    for _dimension in range(nb_dice - 1):
+        shape.append(1)
+        cube = cube + sides.reshape(shape)
+
+    # le cube est prêt,
+    # pour chercher combien de cases ont la valeur target,
+    # on peut faire par exemple
+    return np.sum(cube == target)
+
+# @END@
+
+# @BEG@ name=dice more=2
+def dice_2(target, nb_dice=2, nb_sides=6):
+    """
+    une variante de la première forme, qui utilise
+    astucieusement une matrice diagonale pour énumérer
+    les 'shapes' qui entrent en jeu
+
+    credits: aurelien
+    """
+    sides = np.arange(1, nb_sides+1)
+    shapes = np.diag([nb_sides-1]*nb_dice) + 1
+    # attention ici c'est le sum Python
+    # et non pas np.sum qui ferait complètement autre chose
+    cube = sum(sides.reshape(s) for s in shapes)
+
+    # une autre façon de faire le décompte
+    return np.count_nonzero(cube == target)
+# @END@
+
+# @BEG@ name=dice more=3
+def dice_3(target, nb_dice=2, nb_sides=6):
+    """
+    même logique globalement, mais en utilisant
+    np.newaxis pour changer de dimension
+    """
+    sides = np.arange(1, nb_sides+1)
+    cube = sides
+    # on a déjà un dé
+    for _dimension in range(nb_dice - 1):
+        sides = sides[:, np.newaxis]
+        cube = cube + sides
+
+    # une autre façon de faire le décompte
+    return np.count_nonzero(cube == target)
+# @END@
+
+# @BEG@ name=dice more=4
+def dice_4(target, nb_dice=2, nb_sides=6):
+    """
+    on peut aussi tirer profit de indices()
+    qui fait déjà presque le travail
+    puisqu'il construit plusieurs cubes de la bonne dimension
+    qu'il ne reste plus qu'à additionner
+    """
+    # il faut quand même faire attention
+    # car indices() commence à 0
+    all_indices = np.indices(nb_dice * (nb_sides,)) + 1
+    cube = sum(all_indices)
+
+    return np.count_nonzero(cube == target)
+# @END@
+
+# @BEG@ name=dice more=5
+def dice_5(target, nb_dice=2, nb_sides=6):
+    """
+    une très légère variante
+    """
+    all_indices = np.indices(nb_dice * (nb_sides,))
+    # une façon plus pédante mais plus propre de faire la somme
+    # si on n'a pas rectifié avant, il faut maintenant ajouter nb_dice
+    cube = np.add.reduce(all_indices) + nb_dice
+
+    return np.count_nonzero(cube == target) # ou return len(res[res == target])
+# @END@
+
+# @BEG@ name=dice more=6
+# on peut aussi utiliser itertools.product qui permet
+# d'itérer sans aucune mémoire sur le même hypercube
+#
+# de manière un peu paradoxale, cette version en Python pur,
+# bien que nécessitant en théorie beaucoup moins de mémoire,
+# est beaucoup moins efficace que la version numpy
+# je vous renvoie à la discussion sur le forum intitulée
+# "Exercice dice"
+from itertools import product
+
+def dice_6(target, nb_dice=2, nb_sides=6):
+    """
+    Une autre méthode complètement, qui n'alloue aucun tableau
+    du coup on n'a pas besoin de numpy
+    """
+    # en version facile, on peut utiliser le paramètre `repeat`
+    # de product qui fait exactement ce qu'on veut, puisque
+    # tous les dés ont le même nombre de faces
+    #
+    # par exemple le cas standard (2 dés, 6 faces) se ferait avec
+    # quelque chose comme
+    # (for (i, j) in itertools.product(range(1, 7), repeat=2))
+    #
+    # le premier sum compte les occurences de True dans l'itération
+    return sum(
+        # ici sum(x) fait la somme des tirages des dés
+        sum(x) == target
+        for x in product(range(1, sides+1), repeat=nb_dice))
+# @END@
+
+
+def dice_ko(target, nb_dice=2, nb_sides=6):
+    return nb_sides ** (nb_dice-1)
+
+SIDES = 5
+
+dice_inputs = [
+    Args(7),
+    Args(2),
+    Args(20, nb_sides=10),
+    Args(3, nb_dice=3),
+    Args(4, nb_dice=3),
+    Args(50, nb_dice=8),
+    Args(28, nb_dice=8),
+] + [
+    Args(target, nb_sides=SIDES, nb_dice=3) for target in range(3, 3*SIDES+1)
+]
+
+
+exo_dice = ExerciseFunctionNumpy(
+    dice,
+    dice_inputs,
+    nb_examples=5,
+)
+
+@endexo_dispatch.py!@
+from nbautoeval import Args, ExerciseFunction
+
+
+inputs_dispatch1 = [Args(a, b) for a in range (3, 6) for b in range (7, 10)]
+
+
+# @BEG@ name=dispatch1
+def dispatch1(a, b):
+    """
+    dispatch1 comme spécifié
+    """
+    # si les deux arguments sont pairs
+    if a%2 == 0 and b%2 == 0:
+        return a*a + b*b
+    # si a est pair et b est impair
+    elif a%2 == 0 and b%2 != 0:
+        return a*(b-1)
+    # si a est impair et b est pair
+    elif a%2 != 0 and b%2 == 0:
+        return (a-1)*b
+    # sinon - c'est que a et b sont impairs
+    else:
+        return a*a - b*b
+# @END@
+
+
+def dispatch1_ko(a, b, *args):
+    return a*a + b*b
+
+
+exo_dispatch1 = ExerciseFunction(
+    dispatch1, inputs_dispatch1)
+
+
+
+####################
+samples_A = [(2, 4, 6), [2, 4, 6]]
+samples_B = [{6, 8, 10}]
+
+inputs_dispatch2 = [
+    Args(a, b, A, B)
+      for a, A in zip(range(3, 5), samples_A)
+         for b in range(7, 10) for B in samples_B
+]
+
+
+# @BEG@ name=dispatch2
+def dispatch2(a, b, A, B):
+    """
+    dispatch2 comme spécifié
+    """
+    # les deux cas de la diagonale \
+    if (a in A and b in B) or (a not in A and b not in B):
+        return a*a + b*b
+    # sinon si b n'est pas dans B
+    # ce qui alors implique que a est dans A
+    elif b not in B:
+        return a*(b-1)
+    # le dernier cas, on sait forcément que
+    # b est dans B et a n'est pas dans A
+    else:
+        return (a-1)*b
+# @END@
+
+
+dispatch2_ko = dispatch1_ko
+
+
+exo_dispatch2 = ExerciseFunction(
+    dispatch2, inputs_dispatch2,
+)
+
+@endexo_distance.py!@
+from nbautoeval import Args, ExerciseFunction
+
+
+# @BEG@ name=distance
+import math
+
+def distance(*args):
+    """
+    La racine de la somme des carrés des arguments
+    """
+    # avec une compréhension on calcule
+    # la liste des carrés des arguments
+    # on applique ensuite sum pour en faire la somme
+    # vous pourrez d'ailleurs vérifier que sum ([]) = 0
+    # enfin on extrait la racine avec math.sqrt
+    return math.sqrt(sum([x**2 for x in args]))
+# @END@
+
+
+# @BEG@ name=distance more=bis
+def distance_bis(*args):
+    """
+    Idem mais avec une expression génératrice
+    """
+    # on n'a pas encore vu cette forme - cf Semaine 5
+    # mais pour vous donner un avant-goût d'une expression
+    # génératrice:
+    # on peut faire aussi comme ceci
+    # observez l'absence de crochets []
+    # la différence c'est juste qu'on ne
+    # construit pas la liste des carrés,
+    # car on n'en a pas besoin
+    # et donc un itérateur nous suffit
+    return math.sqrt(sum(x**2 for x in args))
+# @END@
+
+
+distance_inputs = [
+    Args(),
+    Args(1),
+    Args(1, 1),
+    Args(1, 1, 1),
+    Args(1, 1, 1, 1),
+    Args(*range(10)),
+]
+
+
+exo_distance = ExerciseFunction(
+    distance, distance_inputs, nb_examples=3)
+
+
+def distance_ko(*args):
+    return sum([x**2 for x in args])
+
+@endexo_divisible.py!@
+from nbautoeval import Args, ExerciseFunction
+
+
+# @BEG@ name=divisible
+def divisible(a, b):
+    "renvoie True si un des deux arguments divise l'autre"
+    # b divise a si et seulement si le reste
+    # de la division de a par b est nul
+    if a % b == 0:
+        return True
+    # et il faut regarder aussi si a divise b
+    if b % a == 0:
+        return True
+    return False
+# @END@
+
+
+# @BEG@ name=divisible more=bis
+def divisible_bis(a, b):
+    "renvoie True si un des deux arguments divise l'autre"
+    # on n'a pas encore vu les opérateurs logiques, mais
+    # on peut aussi faire tout simplement comme ça
+    # sans faire de if du tout
+    return a % b == 0 or b % a == 0
+# @END@
+
+def divisible_ko(a, b):
+    return a % b == 0
+
+
+inputs_divisible = [
+    Args(10, 30),
+    Args(10, -30),
+    Args(-10, 30),
+    Args(-10, -30),
+    Args(8, 12),
+    Args(12, -8),
+    Args(-12, 8),
+    Args(-12, -8),
+    Args(10, 1),
+    Args(30, 10),
+    Args(30, -10),
+    Args(-30, 10),
+    Args(-30, -10),
+]
+
+exo_divisible = ExerciseFunction(
+    divisible, inputs_divisible
+)
+
+
+
+@endexo_doubler_premier_kwds.py!@
+from nbautoeval import Args, ExerciseFunction, CallRenderer
+
+from .exo_distance import distance
+from .exo_doubler_premier import doubler_premier_inputs
+
+
+# @BEG@ name=doubler_premier_kwds
+def doubler_premier_kwds(func, first, *args, **keywords):
+    """
+    équivalent à doubler_premier
+    mais on peut aussi passer des arguments nommés
+    """
+    # c'est exactement la même chose
+    return func(2*first, *args, **keywords)
+
+# Complément - niveau avancé
+# ----
+# Il y a un cas qui ne fonctionne pas avec cette implémentation,
+# quand le premier argument de func a une valeur par défaut
+# *et* on veut pouvoir appeler doubler_premier
+# en nommant ce premier argument
+#
+# par exemple - avec func=muln telle que définie dans l'énoncé
+#def muln(x=1, y=1): return x*y
+
+# alors ceci:
+# doubler_premier_kwds(muln, x=1, y=2)
+# ne marche pas car on n'a pas les deux arguments requis
+# par doubler_premier_kwds
+#
+# et pour écrire, disons doubler_permier3, qui marcherait aussi comme cela
+# il faudrait faire une hypothèse sur le nom du premier argument...
+# @END@
+
+
+def add3(x, y=0, z=0):
+    return x + y + z
+
+def mul3(x=1, y=1, z=1):
+    return x * y * z
+
+doubler_premier_kwds_inputs = [
+    Args(add3, 1, 2, 3),
+    Args(add3, 1, 2, z=3),
+    Args(add3, 1, y=2, z=3),
+    # Args(add3, x=1, y=2, z=3),
+    Args(mul3, 1, 2, 3),
+    Args(mul3, 1, 2, z=3),
+    Args(mul3, 1, y=2, z=3),
+    # Args(mul3, x=1, y=2, z=3),
+]
+
+# remettre les datasets de doubler_premier
+doubler_premier_kwds_inputs \
+    += [ arg_obj for arg_obj in doubler_premier_inputs
+         if arg_obj.args[0] == distance ]
+
+
+exo_doubler_premier_kwds = ExerciseFunction(
+    doubler_premier_kwds, doubler_premier_kwds_inputs,
+    nb_examples=5,
+    call_renderer=CallRenderer(show_function=False),
+)
+
+
+def doubler_premier_kwds_ko(f, first, *args, **keywords):
+    return f(3*first, *args, **keywords)
+
+@endexo_doubler_premier.py!@
+from nbautoeval import Args, ExerciseFunction, CallRenderer
+
+
+# @BEG@ name=doubler_premier
+def doubler_premier(func, first, *args):
+    """
+    renvoie le résultat de la fonction f appliquée sur
+    func(2 * first, *args)
+    """
+    # une fois qu'on a écrit la signature on a presque fini le travail
+    # en effet on a isolé la fonction, son premier argument, et le reste
+    # des arguments
+    # il ne reste qu'à appeler func, en doublant first
+    return func(2*first, *args)
+# @END@
+
+
+# @BEG@ name=doubler_premier more=bis
+def doubler_premier_bis(func, *args):
+    """
+    marche aussi mais moins élégant
+    """
+    first, *remains = args
+    return func(2*first, *remains)
+# @END@
+
+
+# @BEG@ name=doubler_premier more=ter
+def doubler_premier_ter(func, *args):
+    """
+    ou encore comme ça, mais
+    c'est carrément moche
+    """
+    first = args[0]
+    remains = args[1:]
+    return func(2*first, *remains)
+# @END@
+
+
+doubler_premier_inputs = []
+from operator import add
+from operator import mul
+from .exo_distance import distance
+
+# pour l'exemple on choisit les 3 premiers inputs
+# avec des fonctions différentes
+for i in (1, 3, 5):
+    doubler_premier_inputs.append(Args(add, i, 4))
+    doubler_premier_inputs.append(Args(mul, i, 4))
+doubler_premier_inputs.insert(2, Args(distance, 1.5, 4.))
+doubler_premier_inputs.insert(3, Args(distance, 2.0, 4., 4., 4.))
+
+
+exo_doubler_premier = ExerciseFunction(
+    doubler_premier, doubler_premier_inputs,
+    nb_examples=4,
+    call_renderer=CallRenderer(show_function=False),
+)
+
+
+def doubler_premier_ko(f, first, *args):
+    return f(3*first, *args)
+
+@endexo_graph_dict.py!@
+# pylint: disable=c0111, c0411, c0103
+
+from nbautoeval import Args, ExerciseFunction, PPrintRenderer
+
+
+# @BEG@ name=graph_dict
+from collections import defaultdict
+
+def graph_dict(filename):
+    """
+    construit une stucture de données de graphe
+    à partir du nom du fichier d'entrée
+    """
+    # un dictionnaire vide normal
+    graph = {}
+
+    with open(filename) as feed:
+        for line in feed:
+            begin, value, end = line.split()
+            # c'est cette partie qu'on économisera
+            # dans la deuxième solution avec un defaultdict
+            if begin not in graph:
+                graph[begin] = []
+            # remarquez les doubles parenthèses
+            # car on appelle append avec un seul argument
+            # qui est un tuple
+            graph[begin].append((end, int(value)))
+            # si on n'avait écrit qu'un seul niveau de parenthèses
+            # graph[begin].append(end, int(value))
+            # cela aurait signifié un appel à append avec deux arguments
+            # ce qui n'aurait pas du tout fait ce qu'on veut
+    return graph
+# @END@
+
+
+# @BEG@ name=graph_dict more=bis
+def graph_dict_bis(filename):
+    """
+    pareil mais en utilisant un defaultdict
+    """
+    # on déclare le defaultdict de type list
+    # de cette façon si une clé manque elle
+    # sera initialisée avec un appel à list()
+    graph = defaultdict(list)
+
+    with open(filename) as feed:
+        for line in feed:
+            # on coupe la ligne en trois parties
+            begin, value, end = line.split()
+            # comme c'est un defaultdict on n'a
+            # pas besoin de l'initialiser
+            graph[begin].append((end, int(value)))
+    return graph
+# @END@
+
+
+
+
+inputs_graph_dict = [
+    Args("data/graph1.txt"),
+    Args("data/graph2.txt"),
+    Args("data/graph3.txt"),
+]
+
+
+exo_graph_dict = ExerciseFunction(
+    graph_dict, inputs_graph_dict,
+    nb_examples=1,
+    result_renderer=PPrintRenderer(width=40),
+)
+
+
+def graph_dict_ko(filename):
+    return {'ko' : []}
+
+@endexo_hundreds.py!@
+# pylint: disable=c0111
+import numpy as np
+
+from nbautoeval import Args, ExerciseFunctionNumpy
+
+
+# @BEG@ name=hundreds
+def hundreds(lines, columns, offset):
+    """
+    Fabrique un tableau lines x columns où:
+
+    tab[i, j] = 100 * i + 10 * j + offset
+    """
+    # avec indices(), on a directement
+    # deux tableaux prêts à être broadcastés
+    indx, indy = np.indices((lines, columns))
+    return 100*indx + 10*indy + offset
+# @END@
+
+
+# @BEG@ name=hundreds more=bis
+def hundreds_bis(lines, columns, offset):
+    """
+    Pareil, toujours à base de broadcasting
+    """
+    # cette fois on se fabrique soi-même la souche
+    # des lignes et des colonnes pour montrer
+    # comment on peut se faire indices() à la main
+    # dans du vrai code, utilisez indices()
+    #
+    # une colonne 0, 1, .. lines-1
+    column = np.arange(lines)[:, np.newaxis]
+    # une ligne 0, 1, ... columns-1
+    line = np.arange(columns)
+    # il n'y a plus qu'à broadcaster les deux
+    # attention toutefois que c'est column qui contient
+    # les indices en i
+    return 100*column + 10*line + offset
+# @END@
+
+
+# @BEG@ name=hundreds more=ter
+def hundreds_ter(lines, columns, offset):
+    """
+    Une approche discutable
+    """
+    # à la Fortran; ça n'est pas forcément
+    # la bonne approche ici bien sûr
+    # mais si un élève a des envies de benchmarking...
+    result = np.zeros(shape=(lines, columns), dtype=np.int_)
+    for i in range(lines):
+        for j in range(columns):
+            result[i, j] = 100 * i + 10 * j + offset
+    return result
+# @END@
+
+
+def hundreds_ko(lines, columns, offset):
+    result = np.ones(shape=(lines, columns), dtype=float)
+    return result
+
+
+hundreds_inputs = [
+    Args(2, 4, 0),
+    Args(3, 3, 1),
+]
+
+
+exo_hundreds = ExerciseFunctionNumpy(
+    hundreds,
+    hundreds_inputs,
+    nb_examples=2,
+    )
+
+@endexo_inconnue.py!@
+from nbautoeval import Args, ExerciseFunction
+
+
+alphabet = "0123456789abcdef"
+
+# on fabrique des jeux de données
+import random
+
+def args(connue, inconnue):
+    # composite, connue
+    return Args(connue + inconnue + connue, connue)
+
+inconnue_inputs = [
+    args("".join(random.sample(alphabet, random.randint(3, 6))),
+         "".join(random.sample(alphabet, random.randint(5, 8))))
+    for i in range(4)
+]
+
+
+# @BEG@ name=inconnue
+# pour enlever à gauche et à droite une chaine de longueur x
+# on peut faire composite[ x : -x ]
+# or ici x vaut len(connue)
+def inconnue(composite, connue):
+    return composite[ len(connue) : -len(connue) ]
+# @END@
+
+
+# @BEG@ name=inconnue more=bis
+# ce qui peut aussi s'écrire comme ceci si on préfère
+def inconnue_bis(composite, connue):
+    return composite[ len(connue) : len(composite)-len(connue) ]
+# @END@
+
+
+exo_inconnue = ExerciseFunction(
+    inconnue, inconnue_inputs
+)
+
+
+def inconnue_ko(big, small):
+    return big[len(small):-4]
+
+@endexo_intersect.py!@
+from nbautoeval import Args, ExerciseFunction, PPrintCallRenderer
+
+
+# @BEG@ name=intersect
+def intersect(tuples_a, tuples_b):
+    """
+    prend en entrée deux listes de tuples de la forme
+    (entier, valeur)
+
+    renvoie l'ensemble des valeurs associées, dans A ou B,
+    aux entiers présents dans A et B
+
+    il y a **plein** d'autres façons de faire, mais il faut
+    juste se méfier de ne pas tout recalculer plusieurs fois
+    si on veut faire trop court
+
+    """
+
+    # pour montrer un exemple de fonction locale:
+    # une fonction qui renvoie l'ensemble des entiers
+    # présents comme clé dans une liste d'entrée
+    def keys(tuples):
+        return {entier for entier, valeur in tuples}
+    # on l'applique à A et B
+    keys_a = keys(tuples_a)
+    keys_b = keys(tuples_b)
+    #
+    # les entiers présents dans A et B
+    # avec une intersection d'ensembles
+    common_keys = keys_a & keys_b
+    # et pour conclure on fait une union sur deux
+    # compréhensions d'ensembles
+    return {val_a for key, val_a in tuples_a if key in common_keys} \
+         | {val_b for key, val_b in tuples_b if key in common_keys}
+# @END@
+
+# @BEG@ name=intersect more=bis
+def intersect_bis(A, B):
+    A, B = dict(A), dict(B)
+    keys = set(A) & set(B)
+    return {A[k] for k in keys} | {B[k] for k in keys}
+# @END@
+
+
+def intersect_ko(A, B):
+    A_vals = { v for k, v in A }
+    B_vals = { v for k, v in B }
+    return A_vals & B_vals
+
+
+intersect_inputs = []
+
+A1 = {(12, 'douze'), (10, 'dixA'), (8, 'huit'),}
+B1 = {(5, 'cinq'), (10, 'dixB'), (15, 'quinze'),}
+intersect_inputs.append(Args(A1, B1))
+
+A2 = {(1, 'unA'), (2, 'deux'), (3, 'troisA')}
+B2 = {(1, 'unB'), (2, 'deux'), (4, 'quatreB')}
+intersect_inputs.append(Args(A2, B2))
+
+
+exo_intersect = ExerciseFunction(
+    intersect, intersect_inputs,
+    nb_examples=2,
+    call_renderer=PPrintCallRenderer(width=20),
+)
+
+@endexo_label.py!@
+from nbautoeval import Args, ExerciseFunction
+
+
+inputs_label = [
+    Args( 'Rémi', 10  ),
+    Args( 'Marie', 17 ),
+    Args( 'Kevin', 8  ),
+    Args( 'Jean', 14  ),
+]
+
+# @BEG@ name=label
+def label(prenom, note):
+    if note < 10:
+        return f"{prenom} est recalé"
+    elif note < 16:
+        return f"{prenom} est reçu"
+    else:
+        return f"félicitations à {prenom}"
+# @END@
+
+
+# @BEG@ name=label more=bis
+def label_bis(prenom, note):
+    if note < 10:
+        return f"{prenom} est recalé"
+    # on n'en a pas vraiment besoin ici, mais
+    # juste pour illustrer cette construction
+    elif 10 <= note < 16:
+        return f"{prenom} est reçu"
+    else:
+        return f"félicitations à {prenom}"
+# @END@
+
+
+# @BEG@ name=label more=ter
+# on n'a pas encore vu l'expression conditionnelle
+# et dans ce cas précis ce n'est pas forcément une
+# idée géniale, mais pour votre curiosité on peut aussi
+# faire comme ceci
+def label_ter(prenom, note):
+    return f"{prenom} est recalé" if note < 10 \
+    else f"{prenom} est reçu" if 10 <= note < 16 \
+    else f"félicitations à {prenom}"
+# @END@
+
+
+
+exo_label = ExerciseFunction(
+    label, inputs_label, nb_examples=3,
+)
+
+@endexo_laccess.py!@
+from nbautoeval import Args, ExerciseFunction
+
+####################
+# @BEG@ name=laccess
+def laccess(liste):
+    """
+    retourne un élément de la liste selon la taille
+    """
+    # si la liste est vide il n'y a rien à faire
+    if not liste:
+        return
+    # si la liste est de taille paire
+    if len(liste) % 2 == 0:
+        return liste[-1]
+    else:
+        return liste[len(liste)//2]
+# @END@
+
+
+####################
+# @BEG@ name=laccess more=bis
+# une autre version qui utilise
+# un trait qu'on n'a pas encore vu
+def laccess_bis(liste):
+    # si la liste est vide il n'y a rien à faire
+    if not liste:
+        return
+    # l'index à utiliser selon la taille
+    index = -1 if len(liste) % 2 == 0 else len(liste) // 2
+    return liste[index]
+# @END@
+
+
+inputs_laccess = [
+    Args([]),
+    Args([1]),
+    Args(['spam', 100]),
+    Args(['spam', 100, 'bacon']),
+    Args([1, 2, 3, 100]),
+    Args([1, 2, 100, 4, 5]),
+    Args(['si', 'pair', 'alors', 'dernier']),
+    Args(['retourne', 'le', 'milieu', 'si', 'impair']),
+]
+
+
+exo_laccess = ExerciseFunction(
+    laccess, inputs_laccess, nb_examples=0
+)
+
+
+def laccess_ko(liste):
+    return liste[-1]
+
+#################### le même code marche-t-il avec des strings ?
+inputs_laccess_strings = [
+    Args(""),
+    Args("a"),
+    Args("ab"),
+    Args("abc"),
+    Args("abcd"),
+    Args("abcde"),
+]
+
+exo_laccess_strings = ExerciseFunction(
+    laccess, inputs_laccess_strings
+)
+
+@endexo_libelle.py!@
+from nbautoeval import Args, ExerciseFunction
+
+##############################
+# @BEG@ name=libelle
+def libelle(ligne):
+    """
+    n'oubliez pas votre docstring
+    """
+    # on cherche les 3 champs après avoir nettoyé
+    # les éléments séparés par une virgule
+    mots = [mot.strip() for mot in ligne.split(',')]
+    # si on n'a pas le bon nombre de champs
+    # rappelez-vous que 'return' tout court
+    # est équivalent à 'return None'
+    if len(mots) != 3:
+        return
+    # maintenant on a les trois valeurs
+    nom, prenom, rang = mots
+    # comment présenter le rang
+    rang_ieme = "1er" if rang == "1" \
+                else "2nd" if rang == "2" \
+                else f"{rang}-ème"
+    return f"{prenom}.{nom} ({rang_ieme})"
+# @END@ ##########
+
+def libelle_ko(ligne):
+    try:
+        nom, prenom, rang = ligne.split(',')
+        return f"{prenom}.{nom} ({rang})"
+    except:
+        return None
+
+inputs_libelle = [
+    Args("Joseph, Dupont, 4"),
+    Args("Jean"),
+    Args("Jules , Durand, 1"),
+    Args(" Ted, Mosby, 2,"),
+    Args(" Jacques , Martin, 3 \t"),
+    Args("Sheldon, Cooper ,5,  "),
+    Args("\t John, Doe\t, "),
+    Args("John, Smith, , , , 3"),
+]
+
+exo_libelle = ExerciseFunction(
+    libelle, inputs_libelle,
+    nb_examples = 0,
+)
+
+@endexo_liste_p.py!@
+from nbautoeval import Args, ExerciseFunction, PPrintCallRenderer, PPrintRenderer
+
+# @BEG@ name=liste_P
+def P(x):
+    return 2 * x**2 - 3 * x - 2
+
+def liste_P(liste_x):
+    """
+    retourne la liste des valeurs de P
+    sur les entrées figurant dans liste_x
+    """
+    return [P(x) for x in liste_x]
+# @END@
+
+
+# @BEG@ name=liste_P more=bis
+# On peut bien entendu faire aussi de manière pédestre
+def liste_P_bis(liste_x):
+    liste_y = []
+    for x in liste_x:
+        liste_y.append(P(x))
+    return liste_y
+# @END@
+
+
+inputs_liste_P = [
+    Args(list(range(5))),
+    Args(list(range(-7, 8, 2))),
+    Args([-100, 0, 100]),
+]
+
+
+exo_liste_P = ExerciseFunction(
+    liste_P,
+    inputs_liste_P,
+    call_renderer=PPrintCallRenderer(width=40, show_function=False),
+    result_renderer=PPrintRenderer(width=25),
+)
+
+
+def liste_P_ko(liste):
+    return [P(liste[0])]
+
+@endexo_longest_gap.py!@
+from nbautoeval import Args, ExerciseFunction, PPrintCallRenderer
+
+
+# @BEG@ name=longest_gap
+def longest_gap(liste):
+    result = 0
+    begins = {}
+    for index, item in enumerate(liste):
+        if item not in begins:
+            begins[item] = index
+        else:
+            result = max(result, index - begins[item])
+    return result
+# @END@
+
+
+inputs = [
+    Args([1, 2, 3, 1, 4, 10, 4, 3, -1, 4]),
+    Args(["yes", "no", None, "yes", "no"]),
+    Args([1, 2, 3, 4]),
+]
+
+exo_longest_gap = ExerciseFunction(
+    longest_gap, inputs,
+    nb_examples=0,
+    call_renderer=PPrintCallRenderer(width=45),
+)
+
+@endexo_marine_dict.py!@
+from nbautoeval import Args, ExerciseFunction, PPrintRenderer, PPrintCallRenderer
+
+import json
+
+#################### load data
+# simplification is about keeping fewer entries in extended
+simple_columns = 8
+def simplify(entry):
+    return entry[:simple_columns]
+
+with open("data/marine-e1-ext.json") as feed:
+    extended_full = json.load(feed)
+
+with open("data/marine-e1-abb.json") as feed:
+    abbreviated_full = json.load(feed)
+
+# simplify extended entries - we don't need all these details
+extended_full = [ simplify(e) for e in extended_full ]
+
+### how many do we keep for this exercise
+extract = 4
+
+ids_all = [ t[0] for t in extended_full ]
+ids_extract = ids_all[:extract]
+
+extended = [ t for t in extended_full if t[0] in ids_extract ]
+abbreviated = [ t for t in abbreviated_full if t[0] in ids_extract ]
+
+def show():
+    print("extended_full has {} {}-entries".
+          format(len(extended_full), len(extended_full[0])))
+    print("abbreviated_full has {} {}-entries"
+          .format(len(abbreviated_full), len(abbreviated_full[0])))
+    print("extended has {} entries".format(len(extended)))
+    print("abbreviated has {} entries".format(len(abbreviated)))
+
+#show()
+
+def check(filename):
+    with open(filename) as feed:
+        extended = json.load(feed)
+    ids = { t[0] for t in extended }
+    full_ids = { (t[0], t[4]) for t in extended }
+    print("{} has {} entries - {} different ids and {} different (id, name) tuples"
+          .format(filename, len(extended),
+                  len(ids), len(full_ids)))
+
+#import glob
+#for input in glob.glob("data/marine*ext*json"):
+#    check(input)
+
+#################### index
+# @BEG@ name=index no_example=skip
+def index(bateaux):
+    """
+    Calcule sous la forme d'un dictionnaire indexé par les ids
+    un index de tous les bateaux présents dans la liste en argument
+    Comme les données étendues et abrégées ont toutes leur id
+    en première position on peut en fait utiliser ce code
+    avec les deux types de données
+    """
+    # c'est une simple compréhension de dictionnaire
+    return {bateau[0] : bateau for bateau in bateaux}
+# @END@
+
+
+# @BEG@ name=index more=bis
+def index_bis(bateaux):
+    """
+    La même chose mais de manière itérative
+    """
+    # si on veut décortiquer
+    resultat = {}
+    for bateau in bateaux:
+        resultat[bateau[0]] = bateau
+    return resultat
+# @END@
+
+
+
+# @BEG@ name=index more=ter
+def index_ter(bateaux):
+    """
+    Encore une autre, avec un extended unpacking
+    """
+    # si on veut décortiquer
+    resultat = {}
+    for bateau in bateaux:
+        # avec un extended unpacking on peut extraire
+        # le premier champ; en appelant le reste _
+        # on indique qu'on n'en fera en fait rien
+        id, *_ = bateau
+        resultat[id] = bateau
+    return resultat
+# @END@
+
+
+
+
+def index_ko(ships):
+    return index(extended)
+
+class ExoIndex(ExerciseFunction):
+
+    # on surcharge correction pour capturer les arguments
+    # par defaut on utilise 'abbreviated', utilisé dans le
+    # notebook de validation
+    def correction(self, student_index, bateaux=abbreviated):
+        self.datasets = [Args(bateaux)]
+        return ExerciseFunction.correction(self, student_index)
+
+    # une fonction pour exposer le résultat attendu
+    def resultat(self, bateaux):
+        return self.solution(bateaux)
+
+exo_index = ExoIndex(
+    index, "inputs_gets_overridden",
+    font_size='xx-small',
+    call_renderer=PPrintCallRenderer(width=25),
+    result_renderer=PPrintRenderer(width=30),
+)
+
+
+##############################
+##############################
+# @BEG@ name=merge no_example=skip
+def merge(extended, abbreviated):
+    """
+    Consolide des données étendues et des données abrégées
+    comme décrit dans l'énoncé
+    Le coût de cette fonction est linéaire dans la taille
+    des données (longueur commune des deux listes)
+    """
+    # on initialise le résultat avec un dictionnaire vide
+    result = {}
+    # pour les données étendues
+    # on affecte les 6 premiers champs
+    # et on ignore les champs de rang 6 et au delà
+    for id, latitude, longitude, timestamp, name, country, *_ in extended:
+        # on crée une entrée dans le résultat,
+        # avec la mesure correspondant aux données étendues
+        result[id] = [name, country, (latitude, longitude, timestamp)]
+    # maintenant on peut compléter le résultat avec les données abrégées
+    for id, latitude, longitude, timestamp in abbreviated:
+        # et avec les hypothèses on sait que le bateau a déjà été
+        # inscrit dans le résultat, donc result[id] doit déjà exister
+        # et on peut se contenter d'ajouter la mesure abrégée
+        # dans l'entrée correspondante dans result
+        result[id].append((latitude, longitude, timestamp))
+    # et retourner le résultat
+    return result
+# @END@
+
+
+# @BEG@ name=merge more=bis
+def merge_bis(extended, abbreviated):
+    """
+    Une deuxième version, linéaire également
+    mais qui utilise les indices plutôt que l'unpacking
+    """
+    # on initialise le résultat avec un dictionnaire vide
+    result = {}
+    # on remplit d'abord à partir des données étendues
+    for ship in extended:
+        id = ship[0]
+        # on crée la liste avec le nom et le pays
+        result[id] = ship[4:6]
+        # on ajoute un tuple correspondant à la position
+        result[id].append(tuple(ship[1:4]))
+    # pareil que pour la première solution,
+    # on sait d'après les hypothèses
+    # que les id trouvées dans abbreviated
+    # sont déja présentes dans le résultat
+    for ship in abbreviated:
+        id = ship[0]
+        # on ajoute un tuple correspondant à la position
+        result[id].append(tuple(ship[1:4]))
+    return result
+# @END@
+
+
+# @BEG@ name=merge more=ter
+def merge_ter(extended, abbreviated):
+    """
+    Une troisième solution
+    à cause du tri que l'on fait au départ, cette
+    solution n'est plus linéaire mais en O(n.log(n))
+    """
+    # ici on va tirer profit du fait que les id sont
+    # en première position dans les deux tableaux
+    # si bien que si on les trie,
+    # on va mettre les deux tableaux 'en phase'
+    #
+    # c'est une technique qui marche dans ce cas précis
+    # parce qu'on sait que les deux tableaux contiennent des données
+    # pour exactement le même ensemble de bateaux
+    #
+    # on a deux choix, selon qu'on peut se permettre ou non de
+    # modifier les données en entrée. Supposons que oui:
+    extended.sort()
+    abbreviated.sort()
+    # si ça n'avait pas été le cas on aurait fait plutôt
+    # extended = extended.sorted() et idem pour l'autre
+    #
+    # il ne reste plus qu'à assembler le résultat
+    # en découpant des tranches
+    # et en les transformant en tuples pour les positions
+    # puisque c'est ce qui est demandé
+    return {
+        ext[0] : ext[4:6] + [ tuple(ext[1:4]), tuple(abb[1:4]) ]
+        for (ext, abb) in zip (extended, abbreviated)
+        }
+# @END@
+
+class ExoMerge(ExerciseFunction):
+
+    # on surcharge correction pour capturer les arguments
+    # idem on definit les arguments par defaut pour le code de validation
+    def correction(self, student_merge,
+                   extended=extended, abbreviated=abbreviated):
+        self.datasets = [Args(extended, abbreviated)]
+        return ExerciseFunction.correction(self, student_merge)
+
+    # une fonction pour exposer le resultat attendu
+    def resultat(self, extended, abbreviated):
+        return self.solution(extended, abbreviated)
+
+exo_merge = ExoMerge(
+    merge, "inputs_gets_overridden",
+    font_size='xx-small',
+    call_renderer=PPrintCallRenderer(width=25),
+    result_renderer=PPrintRenderer(width=30),
+)
+
+@endexo_marine_set.py!@
+from nbautoeval import Args, ExerciseFunction, PPrintCallRenderer, PPrintRenderer
+
+
+# load all the data
+import json
+
+with open("data/marine-e2-ext.json") as feed:
+    extended_full = json.load(feed)
+
+with open("data/marine-e2-abb.json") as feed:
+    abbreviated_full = json.load(feed)
+
+from .exo_marine_dict import simplify
+extended_full = [ simplify(e) for e in extended_full ]
+
+
+# @BEG@ name=diff latex_size=footnotesize no_example=skip
+def diff(extended, abbreviated):
+    """Calcule comme demandé dans l'exercice, et sous formes d'ensembles
+    (*) les noms des bateaux seulement dans extended
+    (*) les noms des bateaux présents dans les deux listes
+    (*) les ids des bateaux seulement dans abbreviated
+    """
+
+    ### on n'utilise que des ensembles dans tous l'exercice
+
+    # les ids de tous les bateaux dans extended
+    # avec ce qu'on a vu jusqu'ici le moyen le plus naturel
+    # consiste à calculer une compréhension de liste
+    # et à la traduire en ensemble comme ceci
+    extended_ids = set([ship[0] for ship in extended])
+
+    # les ids de tous les bateaux dans abbreviated
+    # je fais exprès de ne pas mettre les []
+    # de la compréhension de liste, c'est pour vous introduire
+    # les expressions génératrices - voir semaine 5
+    abbreviated_ids = set(ship[0] for ship in abbreviated)
+
+    # les ids des bateaux seulement dans abbreviated
+    # une difference d'ensembles
+    abbreviated_only_ids = abbreviated_ids - extended_ids
+
+    # les ids des bateaux dans les deux listes
+    # une intersection d'ensembles
+    both_ids = abbreviated_ids & extended_ids
+
+    # les ids des bateaux seulement dans extended
+    # ditto
+    extended_only_ids = extended_ids - abbreviated_ids
+
+    # pour les deux catégories où c'est possible
+    # on recalcule les noms des bateaux
+    # par une compréhension d'ensemble
+    both_names = \
+        set([ship[4] for ship in extended if ship[0] in both_ids])
+    extended_only_names = \
+        set([ship[4] for ship in extended if ship[0] in extended_only_ids])
+    # enfin on retourne les 3 ensembles sous forme d'un tuple
+    return extended_only_names, both_names, abbreviated_only_ids
+# @END@
+
+
+# @BEG@ name=diff latex_size=footnotesize more=bis
+def diff_bis(extended, abbreviated):
+    """
+    Même code mais qui utilise les compréhensions d'ensemble
+    que l'on n'a pas encore vues - à nouveau, voir semaine 5
+    mais vous allez voir que c'est assez intuitif
+    """
+    extended_ids = {ship[0] for ship in extended}
+    abbreviated_ids = {ship[0] for ship in abbreviated}
+
+    abbreviated_only_ids = abbreviated_ids - extended_ids
+    both_ids = abbreviated_ids & extended_ids
+    extended_only_ids = extended_ids - abbreviated_ids
+
+    both_names = \
+          {ship[4] for ship in extended if ship[0] in both_ids}
+    extended_only_names = \
+          {ship[4] for ship in extended if ship[0] in extended_only_ids}
+
+    return extended_only_names, both_names, abbreviated_only_ids
+# @END@
+
+
+# @BEG@ name=diff latex_size=footnotesize more=ter
+def diff_ter(extended, abbreviated):
+    """
+    Idem sans les calculs d'ensembles intermédiaires
+    en utilisant les conditions dans les compréhensions
+    """
+    extended_ids =     {ship[0] for ship in extended}
+    abbreviated_ids =  {ship[0] for ship in abbreviated}
+    abbreviated_only = {ship[0] for ship in abbreviated
+                        if ship[0] not in extended_ids}
+    extended_only =    {ship[4] for ship in extended
+                        if ship[0] not in abbreviated_ids}
+    both =             {ship[4] for ship in extended
+                        if ship[0] in abbreviated_ids}
+    return extended_only, both, abbreviated_only
+# @END@
+
+
+# @BEG@ name=diff latex_size=footnotesize more=quater
+def diff_quater(extended, abbreviated):
+    """
+    Idem sans indices
+    """
+    extended_ids =     {id for id, *_ in extended}
+    abbreviated_ids =  {id for id, *_ in abbreviated}
+    abbreviated_only = {id for id, *_ in abbreviated
+                        if id not in extended_ids}
+    extended_only =    {name for id, _, _, _, name, *_ in extended
+                        if id not in abbreviated_ids}
+    both =             {name for id, _, _, _, name, *_ in extended
+                        if id in abbreviated_ids}
+    return extended_only, both, abbreviated_only
+# @END@
+
+
+# une version qui ne marche pas pour la validation
+def diff_ko(extended, abbreviated):
+     extended_ids =     {ship[0] for ship in extended}
+     abbreviated_only = {ship[0] for ship in abbreviated if ship[0] not in extended_ids}
+     extended_only =    {ship[4] for ship in extended    if ship[0] not in abbreviated_only}
+     both =             {ship[4] for ship in extended    if ship[0] in abbreviated_only}
+     return extended_only, both, abbreviated_only
+
+
+########## expose simpler set of data for clearer correction
+# keep only 2 items in each category (ext_only, abb_only, and both)
+selection = 2
+e_o_names, b_names, a_o_ids = diff(extended_full, abbreviated_full)
+# find (selection?) entries in extended_full with the first name in e_o_n
+names = set()
+for i in range(selection): names.add(e_o_names.pop())
+e_o = [ e for e in extended_full if e[4] in names ]
+#print("e_o has {} elts".format(len(e_o)))
+
+
+# find (selection?) entries in extended_full with the first name in b_n
+names = set()
+ids = set()
+b_e = []
+for i in range(selection):
+    names.add(b_names.pop())
+for e in extended_full:
+    if e[4] in names:
+        b_e.append(e)
+        ids.add(e[0])
+#print("b_e has {} elts".format(len(b_e)))
+
+
+# find (selection?) entries in abbreviated_full about the boats in b_e
+b_a = [ a for a in abbreviated_full if a[0] in ids ]
+#print("b_a has {} elts".format(len(b_a)))
+
+
+# find (selection) entries in abbreviated_full with the first id in a_o_i
+ids = set()
+for i in range(selection):
+    ids.add(a_o_ids.pop())
+a_o = [ a for a in abbreviated_full if a[0] in ids ]
+#print("a_o has {} elts".format(len(a_o)))
+
+extended = e_o + b_e
+abbreviated = b_a + a_o
+
+
+##############################
+# on passe des copies pour éviter qu'un bout de code ne pollue
+# tout l'exercice en modifiant le master
+import copy
+
+# a single dataset is enough
+class ExoDiff(ExerciseFunction):
+
+    def correction(self, student_diff, extended=extended, abbreviated=abbreviated):
+        self.datasets = [Args(extended, abbreviated).clone('deep')]
+        return ExerciseFunction.correction(self, student_diff)
+
+    def resultat(self, extended, abbreviated):
+        return self.solution(extended, abbreviated)
+
+exo_diff = ExoDiff(
+    diff, "inputs_gets_overridden",
+    font_size='x-small',
+    call_renderer=PPrintCallRenderer(width=20),
+    result_renderer=PPrintRenderer(width=30),
+)
+
+
+##############################
+# one-shot code
+# purify entries
+# remove duplicates of different ships with the same name
+def purify(filename):
+    with open(filename) as feed:
+        extended = json.load(feed)
+    duplicate_ids = set()
+    hash_name_to_id = {}
+    for e in extended:
+        id = e[0]
+        name = e[4]
+        if name not in hash_name_to_id:
+            hash_name_to_id[name] = id
+        else:
+            previous_id = hash_name_to_id[name]
+            if id != previous_id:
+                print("Found duplicate {} and {} -> {}"
+                      .format(id, previous_id, name))
+                duplicate_ids.add(id)
+
+    print("Input has {} entries".format(len(extended)))
+    print("Found {} duplicate ids".format(len(duplicate_ids)))
+    purified = [ e for e in extended
+                 if e[0] not in duplicate_ids ]
+    print("Purified has {} entries".format(len(purified)))
+
+    pure_filename = filename + ".pure"
+    with open(pure_filename, 'w') as store:
+        json.dump(purified, store)
+    print("Wrote {}".format(pure_filename))
+
+@endexo_matdiag.py!@
+from nbautoeval import Args, ExerciseFunctionNumpy
+
+# xxx JeF29
+def matdiag(liste):
+    return np.eye(len(liste), dtype=np.float64) * liste
+
+
+# @BEG@ name=matdiag
+import numpy as np
+
+def matdiag(liste):
+    """
+    si les arguments sont x1, x2, .. xn
+    retourne une matrice carrée n x n
+    dont les éléments valent
+    m[i, j] = xi si i == j
+    m[i, j] = 0 sinon
+
+    credit: JeF29
+    """
+    # on crée une matrice diagonale unité avec np.eye
+    # (car I se prononce comme eye en anglais)
+    # et on la multiplie par broadcasting avec un vecteur
+    # composé de nos arguments
+    # on la crée de type `int64` de façon à obtenir
+    # pour le résultat final un type entier, flottant
+    # ou complexe, selon les valeurs dans liste
+    return np.eye(len(liste), dtype=np.int64) * liste
+# @END@
+
+# @BEG@ name=matdiag more=2
+def matdiag_2(liste):
+    """
+    même propos mais cette fois avec du slicing
+    """
+    #
+    # on initialise un tableau de la bonne taille n x n
+    # mais tout à plat, avec des zéros
+    # ici si on veut que ça marche avec des complexes,
+    # il faut alors créer tout de suite le tableau de type
+    # complexe, sinon on n'a pas la place
+    n = len(liste)
+    plat = np.zeros((n * n,), dtype=np.complex)
+    #
+    # dans cette représentation là, la diagonale correspond
+    # à un slice qui commence à 1 avec un pas de n+1
+    plat[0 : : n+1] = liste
+    #
+    # maintenant on peut remettre
+    # dans une forme n x n avec reshape
+    #
+    return plat.reshape((n, n))
+# @END@
+
+# @BEG@ name=matdiag more=3
+def matdiag_3(liste):
+    """
+    bon maintenant qu'on s'est bien creusé les méninges
+    pour le faire à la main, il se trouve qu'il y a
+    - bien sûr - une fonction pour ça dans numpy
+    """
+    return np.diag(liste)
+# @END@
+
+def matdiag_ko(liste):
+    # presque ça mais sans le reshape
+    n = len(liste)
+    return np.zeros((n, n))
+
+inputs_matdiag = [
+    Args([1]),
+    Args([1, 2j]),
+    Args([1, 2.5, 4]),
+    Args([0, 1, 2, 4, 8]),
+]
+
+exo_matdiag = ExerciseFunctionNumpy(
+    matdiag, inputs_matdiag,
+    nb_examples = 3,
+)
+
+@endexo_meeting.py!@
+from nbautoeval import (Args, ExerciseFunction,
+                        PPrintRenderer, PPrintCallRenderer, CallRenderer, TextContent)
+
+
+# pprint apparently knowns how to cut strings
+# but only where they have a space
+class MeetingCallRenderer(CallRenderer):
+    def render(self, call):
+        function_name = self.visible_function_name(call)
+        text = f"{function_name}(\n"
+        # the incoming string
+        arg = call.args.args[0]
+        pieces = arg.split(";")
+        def indent(piece):
+            return f"  '{piece};'"
+        args_str = "\n".join(indent(piece) for piece in pieces)
+        # remove last ;
+        args_str = args_str[:-2]
+        text += args_str
+        text += "')"
+        return TextContent(text, is_code=True)
+
+# @BEG@ name=meeting
+def meeting(string):
+    """découpage et tri"""
+    persons = []
+    person_strings = string.split(';')
+    for person_string in person_strings:
+        first, last = person_string.split(':')
+        # il faut 2 niveaux de parenthèse car on insére un tuples
+        persons.append((last, first))
+    # on s'appuie sur le tri des tuples qui fait justement
+    # ce qu'on veut
+    persons.sort()
+    return "".join(f"({last}, {first})" for last, first in persons)
+# @END@
+
+# @BEG@ name=meeting more=bis
+def meeting_bis(string):
+    # on élabore une liste de [first, last]
+    exploded = [ token.split(':') for token in string.split(';') ]
+    # on met le nom en premier, dans des tuples
+    persons = [ (last, first) for (first, last) in exploded ]
+    # on trie, toujours avec le tri sur les tuples
+    persons.sort()
+    # on met en forme
+    return "".join(f"({last}, {first})" for last, first in persons)
+# @END@
+
+inputs = [
+    Args("Fred:Corwill;Wilfred:Corwill;Barney:Tornbull;"
+         "Betty:Tornbull;Bjon:Tornbull;Raphael:Corwill;Alfred:Corwill"),
+]
+
+exo_meeting = ExerciseFunction(
+    meeting,
+    inputs,
+    #call_renderer=PPrintCallRenderer(max_width=20),
+    call_renderer=MeetingCallRenderer(),
+    result_renderer=PPrintRenderer(width=25),
+    font_size='x-small',
+)
+
+def meeting_ko(string):
+    ok = meeting(string)
+    return ok.replace(' ', '')
+
+@endexo_morceaux.py!@
+from nbautoeval import Args, ExerciseFunction
+
+
+####################
+# @BEG@ name=morceaux
+def morceaux(x):
+    if x <= -5:
+        return -x - 5
+    elif x <= 5:
+        return 0
+    else:
+        return x / 5 - 1
+# @END@
+
+
+# @BEG@ name=morceaux more=bis
+def morceaux_bis(x):
+    if x <= -5:
+        return -x - 5
+    if x <= 5:
+        return 0
+    return x / 5 - 1
+# @END@
+
+
+# @BEG@ name=morceaux more=ter
+# on peut aussi faire des tests d'intervalle
+# comme ceci  0 <= x <= 10
+def morceaux_ter(x):
+    if x <= -5:
+        return -x - 5
+    elif -5 <= x <= 5:
+        return 0
+    else:
+        return x / 5 - 1
+# @END@
+
+
+inputs_morceaux = [
+    Args(x) for x in (-10, 0, 10, -6, -5, -4, 4, 5, 20)
+]
+
+
+exo_morceaux = ExerciseFunction(
+    morceaux, inputs_morceaux,
+    nb_examples = 3,
+)
+
+
+def morceaux_ko(x):
+    return morceaux(x) if x <= 15 else x
+
+@endexo_multi_tri.py!@
+from nbautoeval import Args, ExerciseFunction, PPrintCallRenderer, PPrintRenderer
+
+
+# @BEG@ name=multi_tri
+def multi_tri(listes):
+    """
+    trie toutes les sous-listes
+    et retourne listes
+    """
+    for liste in listes:
+        # sort fait un effet de bord
+        liste.sort()
+    # et on retourne la liste de départ
+    return listes
+# @END@
+
+
+inputs_multi_tri = [
+    Args([[40, 12, 25], ['spam', 'egg', 'bacon']]),
+    Args([[32, 45], [200, 12], [-25, 37]]),
+    Args([[], list(range(6)) + [2.5], [4, 2, 3, 1]]),
+]
+
+
+exo_multi_tri = ExerciseFunction(
+    multi_tri, inputs_multi_tri,
+    call_renderer=PPrintCallRenderer(width=30),
+    result_renderer=PPrintRenderer(width=20),
+)
+
+
+def multi_tri_ko(listes):
+    return listes
+
+@endexo_multi_tri_reverse.py!@
+from nbautoeval import Args, ExerciseFunction, PPrintCallRenderer, PPrintRenderer
+
+
+# @BEG@ name=multi_tri_reverse
+def multi_tri_reverse(listes, reverses):
+    """
+    trie toutes les sous listes, dans une direction
+    précisée par le second argument
+    """
+    # zip() permet de faire correspondre les éléments
+    # de listes avec ceux de reverses
+    for liste, reverse in zip(listes, reverses):
+        # on appelle sort en précisant reverse=
+        liste.sort(reverse=reverse)
+    # on retourne la liste de départ
+    return listes
+# @END@
+
+
+def multi_tri_reverse_ko(listes, reverses):
+    for liste in listes:
+        liste.sort()
+    return listes
+
+
+inputs_multi_tri_reverse = [
+    Args([[1, 2], [3, 4]], [True, False]),
+    Args([[1, 2], [3, 4]], (True, True)),
+    Args([[1, 3, 2], [3, 4]], [False, True]),
+    Args([[1, 2], [3, 5, 4]], [False, False]),
+    Args([[1, 3], [9, 5], [4, 2]], (True, False, True)),
+    Args([[], ['a', 'z', 'c']], [False, True],),
+]
+
+
+exo_multi_tri_reverse = ExerciseFunction(
+    multi_tri_reverse, inputs_multi_tri_reverse,
+    nb_examples=2,
+    call_renderer=PPrintCallRenderer(width=24),
+    result_renderer=PPrintRenderer(width=24),
+)
+
+@endexo_npsearch.py!@
+from nbautoeval import (
+    Args, ExerciseGenerator, GeneratorArgs, PPrintRenderer)
+
+# @BEG@ name=npsearch
+import numpy as np
+
+def npsearch(world, needle):
+    """
+    world est la "grande" matrice dans laquelle
+    on cherche les occurrences de needle
+    qui peut être une matrice 2d ou une simple ligne
+
+    npsearch est une fonction génératrice qui énumère
+    les tuples (i, j) correspondant à une occurrence de
+    needle dans world
+    """
+    if len(needle.shape) == 1:
+        needle = needle[np.newaxis, :]
+    n, m = needle.shape
+    # pas la peine de faire une grande boucle sur tout le tableau
+    # s'il y a égalité c'est nécessairement que
+    # le world[i, j] == needle[0, 0]
+    for i, j in np.argwhere(world == needle[0][0]):
+        # c'est ici le point délicat
+        # si vous comparez les deux tableaux à base de ==
+        # (même en utiisant np.all)
+        # vous allez potentiellement mettre en oeuvre
+        # un broadcasting non souhaitable
+        if np.array_equal(world[i:i+n, j:j+m], needle):
+            yield i, j
+# @END@
+
+
+# une version qui ne MARCHE PAS
+def npsearch_ko(world, needle):
+    if len(needle.shape) == 1:
+        needle = needle[np.newaxis, :]
+    n, m = needle.shape
+    for i, j in np.argwhere(world == needle[0][0]):
+        if np.all(world[i:i+n, j:j+m] == needle):
+            yield i, j
+
+z = np.arange(12).reshape(4, 3)
+yz0 = np.array([[3, 4], [6, 7]])
+nz0 = np.array([[0, 0], [0, 0]])
+
+a = np.array(3*[[1, 1, 1, 0, 0, 0]] + 3*[[0, 0, 0, 1, 1, 1]])
+
+ya0 = np.array(4*[[1]]).reshape((2, 2))
+ya1 = np.array(6*[[1]]).reshape((2, 3))
+ya2 = np.array([1, 0, 0, 1, 0, 0, 0, 1, 1]).reshape((3, 3))
+ya3 = np.array(9*[[1]]).reshape((3, 3))
+
+na1 = np.array([1, 1, 0, 0, 0, 0]).reshape(2, 3)
+
+
+b = np.array(np.arange(25)).reshape((5, 5))
+yb1 = np.array([1, 2, 3, 6, 7, 8, 11, 12, 13]).reshape((3, 3))
+yb2 = np.array([13, 14, 0, 18, 19, 0, 23, 24, 0]).reshape((3, 3))
+yn1 = np.array([13, 14, 18, 19, 23, 24]).reshape((3, 2))
+
+inputs_npsearch = [
+    GeneratorArgs(z, yz0),
+    GeneratorArgs(z, nz0),
+    GeneratorArgs(a, ya0),
+    GeneratorArgs(a, ya1),
+    GeneratorArgs(a, ya2),
+    GeneratorArgs(a, ya3),
+    GeneratorArgs(a, na1),
+    GeneratorArgs(b, yb1),
+    GeneratorArgs(b, yb2),
+    GeneratorArgs(b, yn1),
+]
+
+exo_npsearch = ExerciseGenerator(
+    npsearch, inputs_npsearch,
+    nb_examples = 3,
+    result_renderer=PPrintRenderer(width=15),
+    header_font_size='150%',
+    font_size='120%',
+)
+
+@endexo_numbers.py!@
+from nbautoeval import Args, ExerciseFunction
+
+from random import randint
+
+# @BEG@ name=numbers
+def numbers(*liste):
+    """
+    retourne un tuple contenant
+    (*) la somme
+    (*) le minimum
+    (*) le maximum
+    des éléments de la liste
+    """
+
+    if not liste:
+        return 0, 0, 0
+
+    return (
+        # la builtin 'sum' renvoie la somme
+        sum(liste),
+        # les builtin 'min' et 'max' font ce qu'on veut aussi
+        min(liste),
+        max(liste),
+    )
+# @END@
+
+
+# @BEG@ name=numbers more=bis
+# en regardant bien la documentation de sum, max et min,
+# on voit qu'on peut aussi traiter le cas singulier
+# (où il n'y pas d'argument) en passant
+#   start à sum
+#   et default à min ou max
+# comme ceci
+def numbers_bis(*liste):
+    return (
+        # attention, la signature de sum est:
+        #   sum(iterable[, start])
+        # du coup on ne PEUT PAS passer à sum start=0
+        # parce que start n'a pas de valeur par défaut
+        # on pourrait par contre faire juste sum(liste)
+        # car le défaut pour start c'est 0
+        # dit autrement, sum([]) retourne bien 0
+        sum(liste, 0),
+        # par contre avec min c'est
+        #  min(iterable, *[, key, default])
+        # du coup on DOIT appeler min avec default=0 qui est plus clair
+        # l'étoile qui apparaît dans la signature
+        # rend le paramètre default keyword-only
+        min(liste, default=0),
+        max(liste, default=0),
+    )
+# @END@
+
+
+def numbers_ko(liste):
+    return (
+        # la builtin 'sum' renvoie la somme
+        sum(liste),
+        # les builtin 'min' et 'max' font ce qu'on veut aussi
+        max(liste),
+        min(liste),
+    )
+
+
+def numbers_input():
+    length = randint(2, 6)
+    result = []
+    for _ in range(length):
+        result.append(randint(5, 15))
+    return result
+
+
+numbers_inputs = [Args(), Args(6)] + [Args(*numbers_input()) for i in range (4)]
+
+exo_numbers = ExerciseFunction(
+    numbers, numbers_inputs,
+    nb_examples = 3,
+)
+
+@endexo_pgcd.py!@
+from nbautoeval import Args, ExerciseFunction
+
+
+# @BEG@ name=pgcd
+def pgcd(a, b):
+    """
+    le pgcd de a et b par l'algorithme d'Euclide
+    """
+    # l'algorithme suppose que a >= b
+    # donc si ce n'est pas le cas
+    # il faut inverser les deux entrées
+    if b > a:
+        a, b = b, a
+    if b == 0:
+        return a
+    # boucle sans fin
+    while True:
+        # on calcule le reste
+        reste = a % b
+        # si le reste est nul, on a terminé
+        if reste == 0:
+            return b
+        # sinon on passe à l'itération suivante
+        a, b = b, reste
+# @END@
+
+
+# @BEG@ name=pgcd more=bis
+def pgcd_bis(a, b):
+    """
+    Il se trouve qu'en fait la première
+    inversion n'est pas nécessaire.
+
+    En effet si a <= b, la première itération
+    de la boucle while va faire:
+    reste = a % b  c'est-à-dire a
+    et ensuite
+    a, b = b, reste = b, a
+    provoque l'inversion
+    """
+    # si l'on des deux est nul on retourne l'autre
+    if a * b == 0:
+        return a or b
+    # sinon on fait une boucle sans fin
+    while True:
+        # on calcule le reste
+        reste = a % b
+        # si le reste est nul, on a terminé
+        if reste == 0:
+            return b
+        # sinon on passe à l'itération suivante
+        a, b = b, reste
+# @END@
+
+# @BEG@ name=pgcd more=ter
+def pgcd_ter(a, b):
+    """
+    Une autre alternative, qui fonctionne aussi
+    C'est plus court, mais on passe du temps à se
+    convaincre que ça fonctionne bien comme demandé
+    """
+    # si on n'aime pas les boucles sans fin
+    # on peut faire aussi comme ceci
+    while b:
+        a, b = b, a % b
+    return a
+# @END@
+
+
+def pgcd_ko(a, b):
+    return a % b
+
+inputs_pgcd = [
+    Args(0, 0),
+    Args(0, 1),
+    Args(1, 0),
+    Args(15, 10),
+    Args(10, 15),
+    Args(3, 10),
+    Args(10, 3),
+    Args(10, 1),
+    Args(1, 10),
+]
+
+inputs_pgcd += [
+    Args(36 * 2**i * 3**j * 5**k,
+         36 * 2**j * 3**k * 5**i)
+    for i in range(3) for j in range(3) for k in range(2)
+]
+
+exo_pgcd = ExerciseFunction(
+    pgcd, inputs_pgcd,
+    nb_examples = 6,
+)
+
+@endexo_postfix_eval.py!@
+from nbautoeval import Args, ExerciseFunction
+
+
+# @BEG@ name=postfix_eval latex_size=footnotesize
+def postfix_eval(chaine):
+    """
+    an evaluator for postfixed expressions
+
+    all operands are integers, and division is integer division
+    i.e. // i.e. quotient
+
+    input is a string
+
+    example:
+
+    "5 3 + 4 2 - *" -> 16
+    """
+    stack = []
+    # split the line into tokens
+    tokens = chaine.split()
+# @END@
+
+# @BEG@ name=postfix_eval latex_size=footnotesize continued=true
+    for token in tokens:
+        operand = None
+        try:
+            # if it is an integer
+            operand = int(token)
+            # then all we need to do is push
+            stack.append(operand)
+        except ValueError:
+            # if it's not, it's a little more complex
+            operator = token
+            # first our operations are all on 2 operands
+            # so we can pop those, provided there's enough on the stack
+            if len(stack) < 2:
+                # error: not enough values to operate on
+                return 'error-empty-stack'
+            # first element in the stack is the rightmost operand
+            right = stack.pop()
+            left = stack.pop()
+            # is it one of the supported operations ?
+            if operator == '+':
+                stack.append(left + right)
+            elif operator == '-':
+                stack.append(left - right)
+            elif operator == '*':
+                stack.append(left * right)
+            elif operator == '/':
+                stack.append(left // right)
+            else:
+                # error: unknown op
+                return 'error-syntax'
+    # at this point we must have **exactly one** item in the stack
+    if len(stack) == 0:
+        return 'error-empty-stack'
+    elif len(stack) > 1:
+        return 'error-unfinished'
+
+    return stack.pop()
+# @END@
+
+
+# @BEG@ name=postfix_eval more=bis latex_size=footnotesize
+# exact same behaviour, but this version uses a dictionary to
+# avoid the awkward part where we check for a supported operator
+
+# use a dictionary , to map
+#    each operator sign (like '+')
+#    -> to a binary function (i.e. that accepts 2 parameter)
+#
+# we could have defined these 4 functions manually, but
+# it turns out the operator module comes in handy
+from operator import add, mul, sub, floordiv
+
+operator_map = { '+' : add, '*': mul, '-': sub, '/' : floordiv }
+
+def postfix_eval_bis(chaine):
+    """
+    same
+    """
+    stack = []
+    tokens = chaine.split()
+    for token in tokens:
+        operand = None
+        try:
+            operand = int(token)
+            stack.append(operand)
+        except ValueError:
+            operator = token
+            if len(stack) < 2:
+                # error: not enough values to operate on
+                return 'error-empty-stack'
+            right = stack.pop()
+            left = stack.pop()
+            # operator here is typically '+'
+            # and its value in the map is a binary function
+            if operator in operator_map:
+                function = operator_map[operator]
+                stack.append(function(left, right))
+            else:
+                # error: unknown op
+                return 'error-syntax'
+    if len(stack) == 0:
+        return 'error-empty-stack'
+    elif len(stack) > 1:
+        return 'error-unfinished'
+
+    return stack.pop()
+# @END@
+
+
+inputs = [
+    Args("20 40 + 10 *"),
+    Args(" 20 40 + 10 * "),
+    Args("20 6 6 + /"),
+    Args("20 18 -6 + /"),
+    Args("10 -3 /"),
+    Args("10 +"),
+    Args("10 20 30 +"),
+    Args("10 20 30 oops"),
+    Args("40 20 / 10 +"),
+    Args("40 20 - 10 +"),
+    Args("+"),
+    Args("10 20 30 + - /"),
+]
+
+exo_postfix_eval = ExerciseFunction(
+    postfix_eval,
+    inputs,
+    nb_examples=8,
+)
+
+
+# @BEG@ name=postfix_eval_typed latex_size=footnotesize
+def postfix_eval_typed(chaine, type):
+    """
+    a postfix evaluator, using a parametric type
+    that can be either `int`, `float` or `Fraction` or similars
+    """
+    def divide(a, b):
+        if issubclass(type, int):
+            return a // b
+        else:
+            return a / b
+    stack = []
+    tokens = chaine.split()
+    for token in tokens:
+        operand = None
+        try:
+            operand = type(token)
+            stack.append(operand)
+        except ValueError:
+            operator = token
+            if len(stack) < 2:
+                # error: not enough values to operate on
+                return 'error-empty-stack'
+            right = stack.pop()
+            left = stack.pop()
+            if operator == '+':
+                stack.append(left + right)
+            elif operator == '-':
+                stack.append(left - right)
+            elif operator == '*':
+                stack.append(left * right)
+            elif operator == '/':
+                stack.append(divide(left, right))
+            else:
+                # error: unknown op
+                return 'error-syntax'
+    # we must have exactly one item in the stack
+    if len(stack) == 0:
+        return 'error-empty-stack'
+    elif len(stack) > 1:
+        return 'error-unfinished'
+
+    return stack.pop()
+# @END@
+
+from fractions import Fraction
+
+inputs_typed = [
+    Args("20 40 + 10 *", int),
+    Args("20 40 + 10 *", float),
+    Args("20 40 + 10 *", Fraction),
+    Args("20 6 6 + /", int),
+    Args("20 6 6 + /", float),
+    Args("20 6 6 + /", Fraction),
+    Args("20 18 -6 + /", int),
+    Args("20 18 -6 + /", float),
+    Args("20 18 -6 + /", Fraction),
+]
+
+exo_postfix_eval_typed = ExerciseFunction(
+    postfix_eval_typed,
+    inputs_typed,
+    nb_examples=3,
+    font_size='x-small',
+)
+
+@endexo_power.py!@
+from nbautoeval import Args, ExerciseFunction, PPrintRenderer, PPrintCallRenderer
+
+
+# @BEG@ name=power
+def power(x, n):
+    """
+    mise à la puissance en O(log2(n))
+    """
+    # on s'astreint à ne pas utiliser ** parce que ce serait triché
+    # mais bien sûr dans la pratique
+    # on pourrait utiliser **2 pour traiter le cas où n est pair
+    if n == 1:
+        return x
+    elif n % 2 == 0:
+        # on met au carré power(x, n//2)
+        # une petite subtilité ici, c'est que si vous écrivez
+        # root = power(x, n//2) * power(x, n//2)
+        # vous allez évaluez **deux fois** power()
+        # et du coup vous perdez tout le bénéfice de l'exercice
+        root = power(x, n//2)
+        return root * root
+    else:
+        return x * power(x, n-1)
+# @END@
+
+
+# pour ne pas se contenter de x**n
+class Number:
+    def __init__(self, number):
+        self.number = number
+    def __repr__(self):
+        return f"Number({self.number})"
+
+    @staticmethod
+    def get_number(obj):
+        if isinstance(obj, Number):
+            return obj.number
+        elif isinstance(obj, (int, float, complex)):
+            return obj
+
+    def __mul__(self, other):
+        return Number(self.number * self.get_number(other))
+    def __eq__(self, other):
+        return self.number == self.get_number(other)
+
+
+# ceci ne devrait pas marcher avec des instances de Number
+def power_ko(x, n):
+    return x ** n
+
+
+inputs_power = [
+    Args(2, 1),
+    Args(2, 10),
+    Args(1j, 4),
+    Args(Number(1j), 4),
+]
+
+powers = (2, 3, 1024, 1025)
+
+inputs_power += [
+    Args(3, n) for n in powers
+]
+
+i_powers = (2*128, 2**128+1, 2*128-1)
+
+inputs_power += [
+    Args(1j, n) for n in i_powers
+]
+
+exo_power = ExerciseFunction(
+    power, inputs_power,
+    nb_examples = 4,
+    call_renderer=PPrintCallRenderer(width=30),
+    result_renderer=PPrintRenderer(width=40),
+)
+
+@endexo_produit_scalaire.py!@
+from nbautoeval import Args, ExerciseFunction, PPrintCallRenderer, PPrintRenderer
+
+
+# @BEG@ name=produit_scalaire
+def produit_scalaire(vec1, vec2):
+    """
+    retourne le produit scalaire
+    de deux listes de même taille
+    """
+    # avec zip() on peut faire correspondre les
+    # valeurs de vec1 avec celles de vec2 de même rang
+    #
+    # et on utilise la fonction builtin sum sur une itération
+    # des produits x1*x2
+    #
+    # remarquez bien qu'on utilise ici une expression génératrice
+    # et PAS une compréhension car on n'a pas du tout besoin de
+    # créer la liste des produits x1*x2
+    #
+    return sum(x1 * x2 for x1, x2 in zip(vec1, vec2))
+# @END@
+
+
+# @BEG@ name=produit_scalaire more=bis
+# Il y a plein d'autres solutions qui marchent aussi
+#
+def produit_scalaire_bis(vec1, vec2):
+    """
+    Une autre version, où on fait la somme à la main
+    """
+    scalaire = 0
+    for x1, x2 in zip(vec1, vec2):
+        scalaire += x1 * x2
+    # on retourne le résultat
+    return scalaire
+# @END@
+
+
+# @BEG@ name=produit_scalaire more=ter
+# Et encore une:
+# celle-ci par contre est assez peu "pythonique"
+#
+# considérez-la comme un exemple de
+# ce qu'il faut ÉVITER DE FAIRE:
+#
+def produit_scalaire_ter(vec1, vec2):
+    """
+    Lorsque vous vous trouvez en train d'écrire:
+
+        for i in range(len(sequence)):
+            x = iterable[sequence]
+            # etc...
+
+    vous pouvez toujours écrire à la place:
+
+        for x in sequence:
+            ...
+
+    qui en plus d'être plus facile à lire,
+    marchera sur tout itérable, et sera plus rapide
+    """
+    scalaire = 0
+    # sachez reconnaitre ce vilain idiome:
+    for i in range(len(vec1)):
+        scalaire += vec1[i] * vec2[i]
+    return scalaire
+# @END@
+
+
+from fractions import Fraction
+
+
+inputs_produit_scalaire = [
+    Args((1, 2), (3, 4)),
+    Args(range(3, 9), range(5, 11)),
+    Args([-2, 10], [20, 4]),
+    Args([Fraction(2, 15), Fraction(3, 4)],
+         [Fraction(-7, 19), Fraction(4, 13)]),
+    Args([], []),
+]
+
+
+exo_produit_scalaire = ExerciseFunction(
+    produit_scalaire,
+    inputs_produit_scalaire,
+    call_renderer=PPrintCallRenderer(width=25),
+    result_renderer=PPrintRenderer(width=25),
+)
+
+
+def produit_scalaire_ko(vec1, vec2):
+    return [x * y for x, y in zip(vec1, vec2)]
+
+@endexo_read_set.py!@
+from nbautoeval import Args, ExerciseFunction, PPrintCallRenderer, PPrintRenderer
+
+
+# @BEG@ name=read_set
+# on suppose que le fichier existe
+def read_set(filename):
+    """
+    crée un ensemble des mots-lignes trouvés dans le fichier
+    """
+    # on crée un ensemble vide
+    result = set()
+
+    # on parcourt le fichier
+    with open(filename) as feed:
+        for line in feed:
+            # avec strip() on enlève la fin de ligne,
+            # et les espaces au début et à la fin
+            result.add(line.strip())
+    return result
+# @END@
+
+
+# @BEG@ name=read_set more=bis
+# on peut aussi utiliser une compréhension d'ensemble
+# (voir semaine 5); ça se présente comme
+# une compréhension de liste mais on remplace
+# les [] par des {}
+def read_set_bis(filename):
+    with open(filename) as feed:
+        return {line.strip() for line in feed}
+# @END@
+
+
+read_set_inputs = [
+    Args("data/setref1.txt"),
+    Args("data/setref2.txt"),
+]
+
+exo_read_set = ExerciseFunction(
+    read_set, read_set_inputs,
+    result_renderer=PPrintRenderer(width=25),
+)
+
+
+
+# @BEG@ name=search_in_set
+# ici aussi on suppose que les fichiers existent
+def search_in_set(filename_reference, filename):
+    """
+    cherche les mots-lignes de filename parmi ceux
+    qui sont presents dans filename_reference
+    """
+
+    # on tire profit de la fonction précédente
+    reference_set = read_set(filename_reference)
+
+    # on crée une liste vide
+    result = []
+    with open(filename) as feed:
+        for line in feed:
+            token = line.strip()
+            # remarquez ici les doubles parenthèses
+            # pour passer le tuple en argument
+            result.append((token, token in reference_set))
+
+    return result
+# @END@
+
+
+# @BEG@ name=search_in_set more=bis
+def search_in_set_bis(filename_reference, filename):
+
+    # on tire profit de la fonction précédente
+    reference_set = read_set(filename_reference)
+
+    # c'est un plus clair avec une compréhension
+    # mais moins efficace car on calcule strip() deux fois
+    with open(filename) as feed:
+        return [(line.strip(), line.strip() in reference_set)
+                for line in feed]
+# @END@
+
+
+search_in_set_inputs = [
+    Args("data/setref1.txt", "data/setsample1.txt"),
+    Args("data/setref2.txt", "data/setsample2.txt"),
+]
+
+exo_search_in_set = ExerciseFunction(
+    search_in_set, search_in_set_inputs,
+    call_renderer=PPrintCallRenderer(width=25),
+    result_renderer=PPrintRenderer(width=25),
+)
+
+@endexo_rpcproxy.py!@
+# @BEG@ name=RPCProxy week=6 sequence=2 latex_size=footnotesize no_validation=skip
+# une troisième implémentation de RPCProxy
+
+class Forwarder:
+    """
+    Une instance de la classe Forwarder est un callable
+    qui peut être utilisée comme une méthode sur l
+    class RPCProxy
+    """
+    def __init__(self, rpc_proxy, methodname):
+        """
+        le constructeur  mémorise l'instance de RPCProxy
+        et le nom de la méthode qui a été appelée
+        """
+        self.methodname = methodname
+        self.rpc_proxy = rpc_proxy
+
+    def __call__(self, *args):
+        """
+        en rendant cet objet callable, on peut l'utiliser
+        comme une méthode de RPCProxy
+        """
+        print "Envoi à {}\nde la fonction {} -- args= {}".\
+            format(self.rpc_proxy.url, self.methodname, args)
+        return "retour de la fonction " + self.methodname
+
+class RPCProxy:
+    """
+    Une troisième implémentation de RPCProxy qui sous-traite
+    à une classe annexe `Forwarder` qui se comporte comme
+    une *factory* de méthodes
+    """
+    def __init__(self, url, login, password):
+        self.url = url
+        self.login = login
+        self.password = password
+
+    def __getattr__ (self, methodname):
+        """
+        Crée à la volée une instance de Forwarder
+        correspondant à 'methodname'
+        """
+        return Forwarder(self, methodname)
+# @END@
+A
+
+@endexo_spreadsheet.py!@
+from nbautoeval import Args, ExerciseFunction
+
+# @BEG@ name=spreadsheet
+def int_to_char(n):
+    """
+    traduit un entier entre 1 et 26
+    en un caractère entre 'A' et 'Z'
+    """
+    # si index était compris entre 0 et 25, on pourrait obtenir
+    # la lettre comme étant chr(ord('A') + index)
+    # on fait donc un changement de variable n -> n-1
+    # de plus on va rendre le résultat cyclique modulo 26
+    # pour pouvoir l'utiliser sur des nombres quelconques
+
+    return chr(ord('A') + (n - 1) % 26)
+
+
+def spreadsheet(index):
+    """
+    transforme un numéro de colonne en nom alphabétique
+    dans l'ordre lexicographique
+    1 -> A; 26 -> Z; 27 -> AA; 28 -> AB; etc..
+    """
+    # index peut être supérieur à 26
+    # en remarquant que la dernière lettre s'incrémente à chaque fois
+    # qu'index augmente, et repasse à 'A' de manière cyclique,
+    # on voit qu'on peut utiliser notre version cyclique de `int_to_char`
+    # pour calculer la lettre la plus à droite dans le résultat.
+    # et pour les autres lettres, il suffit de recommencer sur le quotient
+
+    result = int_to_char(index)
+    while index > 26:
+        index = (index - 1) // 26
+        result = int_to_char(index) + result
+    return result
+# @END@
+
+
+# si on veut montrer plusieurs versions dans les corrections
+# on peut faire comme ceci
+
+# @BEG@ name=spreadsheet more=bis
+def spreadsheet_bis(index):
+    """
+    Accessoirement on peut vérifier que la variable index fournie
+    est bien un entier supérieur à 0.
+    """
+    if not isinstance(index, int):
+        raise TypeError("index must be an integer !")
+    elif index < 1:
+        raise ValueError("index must be positive !")
+
+    result = chr(ord('A') + (index - 1) % 26)
+    while index > 26:
+        index = (index - 1) // 26
+        result = chr(ord('A') + (index - 1) % 26) + result
+    return result
+# @END@
+
+# @BEG@ name=spreadsheet more=ter
+# la fonction int_to_char n'a pas besoin d'être exposée
+#  dans l'espace de nommage du module.
+# puisque c'est une fonction assistante,
+#  on peut en faire une variable locale à spreadsheet_ter
+#  en la déclarant à l'intérieur de la fonction
+def spreadsheet_ter(index):
+    """
+    transforme un numéro de colonne en nom alphabétique
+    dans l'ordre lexicographique
+    1 -> A; 26 -> Z; 27 -> AA; 28 -> AB; etc..
+    """
+    def int_to_char(n):
+        """
+        traduit un entier entre 1 et 26
+        en un caractère entre 'A' et 'Z'
+        """
+        return chr(ord('A') + (n - 1) % 26)
+
+    if not isinstance(index, int):
+        raise TypeError("index must be an integer!")
+    elif index < 1:
+        raise ValueError("index must be positive!")
+
+    # ici int_to_char est une variable locale
+    # à la fonction spreadsheet_ter
+    result = int_to_char(index)
+    while index > 26:
+        index = (index - 1) // 26
+        # idem ici bien sûr
+        result = int_to_char(index) + result
+    return result
+# @END@
+
+z   = 26
+zz  =  26**2 + 26
+zzz = 26**3 + 26**2 + 26
+
+numeric_inputs = (
+    1, 15, z, z+1, zz-1, zz, zz+1, zz+2, zzz-1, zzz, zzz+1, zzz+2, 26**2-1,
+    30_000, 100_000, 1_000_000,
+)
+
+# l'objet Args permet de capturer les arguments
+# pour un appel à la fonction
+spreadsheet_inputs = [Args(n) for n in numeric_inputs]
+
+exo_spreadsheet = ExerciseFunction(
+    spreadsheet, spreadsheet_inputs, nb_examples=7,
+)
+
+
+def spreadsheet_ko(n):
+    if 1 <= n <= 26:
+        return int_to_char(n)
+    else:
+        return spreadsheet_ko(n//26) + int_to_char(n)
+
+@endexo_stairs.py!@
+# pylint: disable=c0111
+
+import numpy as np
+import matplotlib.pyplot as plt
+from ipywidgets import Output
+
+from nbautoeval import Args, ExerciseFunctionNumpy, Renderer
+
+
+# @BEG@ name=stairs
+def stairs(taille):
+    """
+    la pyramide en escaliers telle que décrite dans l'énoncé
+    """
+    # on calcule n
+    total = 2 * taille + 1
+    # on calcule les deux tableaux d'indices
+    # tous les deux de dimension total
+    I, J = np.indices((total, total))
+    # on décale et déforme avec valeur absolue, pour obtenir
+    # deux formes déjà plus propices
+    I2, J2 = np.abs(I-taille), np.abs(J-taille)
+    # si ajoute on obtient un négatif,
+    # avec 0 au centre et taille aux 4 coins
+    negatif = I2 + J2
+    # ne retse plus qu'à renverser
+    return 2 * taille - negatif
+# @END@
+
+
+# @BEG@ name=stairs more=2
+def stairs_2(taille):
+    """
+    même idée, modalités légèrement différentes
+    Aussi on peut inverser plus tôt
+    """
+    total = 2 * taille + 1
+    # on peut préciser le type, mais ce n'est pas
+    # réellement nécessaire ici
+    I, J = np.indices((total, total), dtype=np.int8)
+    # on peut inverser avant d'ajouter si c'est plus naturel
+    return  (taille - np.abs(I-taille)) + (taille - np.abs(J-taille))
+# @END@
+
+
+# @BEG@ name=stairs more=3
+def stairs_3(taille):
+    """
+    en fait on n'a pas vraiment besoin d'indices
+    """
+    # la première ligne
+    line = taille - np.abs(np.arange(-taille, taille+1))
+    # la première colonne est la transposée
+    # comme je n'aime pas utiliser .T
+    # je préfère un reshape
+    # et il n'y a qu'à ajouter
+    return line + line.reshape((2*taille+1, 1))
+# @END@
+
+# @BEG@ name=stairs more=4
+def stairs_4(taille):
+    """
+    une approche par mosaique
+    on construit un quart, et on le duplique avec
+    * np.hstack (une fonction d'empilement)
+    * np.flip (une fonction de miroir)
+
+    credits: JeF29
+    """
+    a = np.arange(taille)
+    b = np.hstack((a, taille, np.flip(a)))
+    return b + b.reshape(-1, 1) # ou b + b[:, np.newaxis]
+# @END@
+
+
+
+# @BEG@ name=stairs more=ter
+def stairs_ter(taille):
+    """
+    Version proposée par j4l4y
+    Dans la rubrique 'oneliner challenge'
+
+    credits: j4l4y
+    """
+    # la forme np.abs(np.range(-n, n+1)) correspond à la forme
+    # en V, par exemple pour n=3 : -3, -2, -1, 0, 1, 2, 3
+    # dans cette version, on l'agrandit artificiellement en 2D
+    # pour pouvoir prendre sa transposée
+    return (lambda x: x + x.T)(
+        taille - np.abs(range(-taille, taille+1))[:, np.newaxis]
+    )
+# @END@
+
+
+def stairs_ko(taille):
+    n = 2 * taille + 1
+    ix, iy = np.indices((n, n), dtype=np.float)
+    return ((taille - 1) + 2 * taille
+            - (np.abs(ix - taille) + np.abs(iy - taille)))
+
+
+stairs_inputs = [
+    Args(1),
+    Args(2),
+    Args(3),
+    Args(4),
+]
+
+exo_stairs = ExerciseFunctionNumpy(
+    stairs,
+    stairs_inputs,
+    nb_examples=2,
+)
+
+@endexo_surgery.py!@
+from nbautoeval import Args, ExerciseFunction
+
+####################
+# @BEG@ name=surgery
+def surgery(liste):
+    """
+    Prend en argument une liste, et retourne la liste modifiée:
+    * taille paire: on intervertit les deux premiers éléments
+    * taille impaire >= 3: on fait tourner les 3 premiers éléments
+    """
+    # si la liste est de taille 0 ou 1, il n'y a rien à faire
+    if len(liste) < 2:
+        pass
+    # si la liste est de taille paire
+    elif len(liste) % 2 == 0:
+        # on intervertit les deux premiers éléments
+        liste[0], liste[1] = liste[1], liste[0]
+    # si elle est de taille impaire
+    else:
+        liste[-2], liste[-1] = liste[-1], liste[-2]
+    # et on n'oublie pas de retourner la liste dans tous les cas
+    return liste
+# @END@
+
+def surgery_ko(liste):
+    if len(liste) % 2 == 0:
+        liste[0], liste[1] = liste[1], liste[0]
+    return liste
+
+inputs_surgery = [
+    Args(list(range(i))) for i in range(8)
+]
+
+exo_surgery = ExerciseFunction(
+    surgery, inputs_surgery, nb_examples=5
+)
+
+@endexo_taxes.py!@
+from nbautoeval import Args, ExerciseFunction
+
+
+# @BEG@ name=taxes
+# une solution très élégante proposée par adrienollier
+
+# les tranches en ordre décroissant
+bareme = (
+    (150_000, 45),
+    (50_000, 40),
+    (12_500, 20),
+    (0, 0),
+)
+
+def taxes(revenu):
+    """
+    U.K. income taxes calculator
+    https://www.gov.uk/income-tax-rates
+    """
+    montant = 0
+    for seuil, taux in bareme:
+        if revenu > seuil:
+            montant += (revenu - seuil) * taux // 100
+            revenu = seuil
+    return montant
+# @END@
+
+
+# @BEG@ name=taxes more=bis  latex_size=footnotesize
+
+# cette solution est plus pataude; je la retiens
+# parce qu'elle montre un cas de for .. else ..
+# qui ne soit pas trop tiré par les cheveux
+# quoique
+
+bands = [
+    # à partir de 0. le taux est nul
+    (0, 0.),
+    # jusqu'à 12 500 où il devient de 20%
+    (12_500, 20/100),
+    # etc.
+    (50_000, 40/100),
+    (150_000, 45/100),
+]
+
+def taxes_bis(income):
+    """
+    Utilise un for avec un else
+    """
+    amount = 0
+
+    # en faisant ce zip un peu étrange, on va
+    # considérer les couples de tuples consécutifs dans
+    # la liste bands
+    for (band1, rate1), (band2, _) in zip(bands, bands[1:]):
+        # le salaire est au-delà de cette tranche
+        if income >= band2:
+            amount += (band2-band1) * rate1
+        # le salaire est dans cette tranche
+        else:
+            amount += (income-band1) * rate1
+            # du coup on peut sortir du for par un break
+            # et on ne passera pas par le else du for
+            break
+    # on ne passe ici qu'avec les salaires dans la dernière tranche
+    # en effet pour les autres on est sorti du for par un break
+    else:
+        band_top, rate_top = bands[-1]
+        amount += (income - band_top) * rate_top
+    return int(amount)
+# @END@
+
+
+# pas dans les corrigés, ce sera suffisant
+# @ BEG @ name=taxes more=ter
+# Une autre version proposée aussi par adrienollier
+# qui contourne la difficulté en utilisant
+# habilement math.inf
+# nombre infini qui est supérieur à tous les nombres
+
+import math
+
+TaxRate2 = (
+    (0, 12_500, 0),
+    (12_501, 50_000, 20),
+    (50_001, 150_000, 40),
+    (150_001, math.inf, 45),
+)
+
+def taxes_ter(income):
+
+    due = 0
+    for floor, ceiling, rate in TaxRate2:
+        due += (min(income, ceiling) - floor + 1) * rate / 100
+        if income <= ceiling:
+            return int(due)
+
+
+def taxes_ko(income):
+    return (income - 12_500) * 20/100
+
+
+taxes_values = [ 0, 50_000, 12_500, 5_000,
+                 16_500, 30_000, 100_000, 150_000, 200_000, 12_504
+]
+
+taxes_inputs = [Args(v) for v in taxes_values]
+
+exo_taxes = ExerciseFunction(taxes, taxes_inputs, nb_examples=3)
+
+if __name__ == '__main__':
+    for value in taxes_values:
+        tax = taxes(value)
+        print(f"{value} -> {tax}")
+
+@endexo_tri_custom.py!@
+from nbautoeval import Args, ExerciseFunction, PPrintRenderer, PPrintCallRenderer
+
+
+# @BEG@ name=tri_custom
+def tri_custom(liste):
+    """
+    trie une liste en fonction du critère de l'énoncé
+    """
+    # pour le critère de tri on s'appuie sur l'ordre dans les tuples
+    # c'est-à-dire
+    # ((1, 2) <= (1, 2, 0) <= (1, 3) <= (2, 0)) == True
+    # du coup il suffit que la fonction critère renvoie
+    # selon la présence de p2, un tuple de 2 ou 3 éléments
+    def custom_key(item):
+        if 'p2' in item:
+            return (item['p'], item['n'], item['p2'])
+        return (item['p'], item['n'])
+    liste.sort(key=custom_key)
+    return liste
+# @END@
+
+# @BEG@ name=tri_custom more=bis
+def tri_custom_bis(liste):
+    """
+    tri avec une fonction lambda et une expression conditionnelle
+    """
+    # la même chose avec une lambda
+    # l'expression conditionnelle est nécessaire ici, car
+    # dans une lambda on est limité à des expressions
+    liste.sort(key=lambda d: (d['p'], d['n'], d['p2'])
+                              if 'p2' in d
+                              else (d['p'], d['n']))
+    return liste
+# @END@
+
+# @BEG@ name=tri_custom more=ter
+def tri_custom_ter(liste):
+    """
+    tri avec une fonction lambda et une compréhension de tuple
+    """
+    # sous cette forme, tout devient plus simple si on devait
+    # avoir d'autres colonnes à prendre en compte
+    keys = ('p', 'n', 'p2')
+    liste.sort(key=lambda d: tuple(d[k] for k in keys if k in d))
+    return liste
+# @END@
+
+items1 = [
+    dict(n='Martin', p='Jean'),
+    dict(n='Martin', p='Jeanne'),
+    dict(n='Martin', p='Jeanne', p2='Marie'),
+    dict(n='Martin', p='Jean', p2='Pierre'),
+    dict(n='Martin', p='Jean', p2='Paul'),
+    dict(n='Martin', p='Jeanneot'),
+    dict(n='Dupont', p='Alex'),
+    dict(n='Dupont', p='Laura'),
+    dict(n='Dupont', p='Laura', p2='Marie'),
+    dict(n='Dupont', p='Alex', p2='Pierre'),
+    dict(n='Dupont', p='Alex', p2='Paul'),
+    dict(n='Dupont', p='Alexandre'),
+]
+
+items2 = [
+    dict(n='Smith', p='Bob'),
+    dict(n='Smith', p='Bob', p2='Paul'),
+    dict(n='Smith', p='Charlie'),
+    dict(n='Smith', p='John'),
+    dict(n='Forbes', p='Bob'),
+    dict(n='Forbes', p='Charlie'),
+    dict(n='Forbes', p='John'),
+]
+
+items3 = items1 + items2
+
+"""
+to generate the actual inputs
+import random
+
+inputs = []
+for i in range(3):
+    for template in [items1, items2, items3]:
+        input = template[:]
+        random.shuffle(input)
+        inputs.append(input)
+
+inputs
+"""
+
+inputs = [[{'n': 'Dupont', 'p': 'Laura', 'p2': 'Marie'},
+  {'n': 'Martin', 'p': 'Jean'},
+  {'n': 'Martin', 'p': 'Jeanneot'},
+  {'n': 'Dupont', 'p': 'Alex'},
+  {'n': 'Martin', 'p': 'Jean', 'p2': 'Pierre'},
+  {'n': 'Martin', 'p': 'Jeanne'},
+  {'n': 'Dupont', 'p': 'Alexandre'},
+  {'n': 'Dupont', 'p': 'Alex', 'p2': 'Pierre'},
+  {'n': 'Martin', 'p': 'Jeanne', 'p2': 'Marie'},
+  {'n': 'Dupont', 'p': 'Alex', 'p2': 'Paul'},
+  {'n': 'Martin', 'p': 'Jean', 'p2': 'Paul'},
+  {'n': 'Dupont', 'p': 'Laura'}],
+ [{'n': 'Smith', 'p': 'Bob'},
+  {'n': 'Smith', 'p': 'Charlie'},
+  {'n': 'Smith', 'p': 'Bob', 'p2': 'Paul'},
+  {'n': 'Smith', 'p': 'John'},
+  {'n': 'Forbes', 'p': 'John'},
+  {'n': 'Forbes', 'p': 'Charlie'},
+  {'n': 'Forbes', 'p': 'Bob'}],
+ [{'n': 'Smith', 'p': 'Bob'},
+  {'n': 'Martin', 'p': 'Jean', 'p2': 'Paul'},
+  {'n': 'Smith', 'p': 'John'},
+  {'n': 'Martin', 'p': 'Jean', 'p2': 'Pierre'},
+  {'n': 'Forbes', 'p': 'Bob'},
+  {'n': 'Forbes', 'p': 'Charlie'},
+  {'n': 'Dupont', 'p': 'Laura'},
+  {'n': 'Smith', 'p': 'Charlie'},
+  {'n': 'Martin', 'p': 'Jeanne'},
+  {'n': 'Martin', 'p': 'Jean'},
+  {'n': 'Dupont', 'p': 'Alex', 'p2': 'Paul'},
+  {'n': 'Martin', 'p': 'Jeanneot'},
+  {'n': 'Dupont', 'p': 'Alex'},
+  {'n': 'Dupont', 'p': 'Alexandre'},
+  {'n': 'Dupont', 'p': 'Alex', 'p2': 'Pierre'},
+  {'n': 'Dupont', 'p': 'Laura', 'p2': 'Marie'},
+  {'n': 'Martin', 'p': 'Jeanne', 'p2': 'Marie'},
+  {'n': 'Forbes', 'p': 'John'},
+  {'n': 'Smith', 'p': 'Bob', 'p2': 'Paul'}],
+ [{'n': 'Dupont', 'p': 'Alex', 'p2': 'Paul'},
+  {'n': 'Dupont', 'p': 'Laura', 'p2': 'Marie'},
+  {'n': 'Martin', 'p': 'Jeanneot'},
+  {'n': 'Martin', 'p': 'Jeanne'},
+  {'n': 'Dupont', 'p': 'Alex', 'p2': 'Pierre'},
+  {'n': 'Dupont', 'p': 'Laura'},
+  {'n': 'Martin', 'p': 'Jeanne', 'p2': 'Marie'},
+  {'n': 'Martin', 'p': 'Jean', 'p2': 'Pierre'},
+  {'n': 'Dupont', 'p': 'Alexandre'},
+  {'n': 'Martin', 'p': 'Jean', 'p2': 'Paul'},
+  {'n': 'Dupont', 'p': 'Alex'},
+  {'n': 'Martin', 'p': 'Jean'}],
+ [{'n': 'Smith', 'p': 'Bob', 'p2': 'Paul'},
+  {'n': 'Forbes', 'p': 'Bob'},
+  {'n': 'Forbes', 'p': 'Charlie'},
+  {'n': 'Smith', 'p': 'Charlie'},
+  {'n': 'Smith', 'p': 'John'},
+  {'n': 'Forbes', 'p': 'John'},
+  {'n': 'Smith', 'p': 'Bob'}],
+ [{'n': 'Dupont', 'p': 'Laura'},
+  {'n': 'Smith', 'p': 'John'},
+  {'n': 'Martin', 'p': 'Jean'},
+  {'n': 'Dupont', 'p': 'Alex', 'p2': 'Paul'},
+  {'n': 'Smith', 'p': 'Charlie'},
+  {'n': 'Martin', 'p': 'Jeanne', 'p2': 'Marie'},
+  {'n': 'Forbes', 'p': 'Bob'},
+  {'n': 'Martin', 'p': 'Jean', 'p2': 'Paul'},
+  {'n': 'Dupont', 'p': 'Laura', 'p2': 'Marie'},
+  {'n': 'Dupont', 'p': 'Alexandre'},
+  {'n': 'Martin', 'p': 'Jean', 'p2': 'Pierre'},
+  {'n': 'Martin', 'p': 'Jeanne'},
+  {'n': 'Smith', 'p': 'Bob', 'p2': 'Paul'},
+  {'n': 'Dupont', 'p': 'Alex'},
+  {'n': 'Martin', 'p': 'Jeanneot'},
+  {'n': 'Forbes', 'p': 'John'},
+  {'n': 'Dupont', 'p': 'Alex', 'p2': 'Pierre'},
+  {'n': 'Smith', 'p': 'Bob'},
+  {'n': 'Forbes', 'p': 'Charlie'}],
+ [{'n': 'Dupont', 'p': 'Alex', 'p2': 'Pierre'},
+  {'n': 'Dupont', 'p': 'Alex'},
+  {'n': 'Martin', 'p': 'Jeanneot'},
+  {'n': 'Martin', 'p': 'Jeanne', 'p2': 'Marie'},
+  {'n': 'Martin', 'p': 'Jean', 'p2': 'Pierre'},
+  {'n': 'Martin', 'p': 'Jeanne'},
+  {'n': 'Dupont', 'p': 'Alexandre'},
+  {'n': 'Martin', 'p': 'Jean'},
+  {'n': 'Dupont', 'p': 'Laura', 'p2': 'Marie'},
+  {'n': 'Dupont', 'p': 'Laura'},
+  {'n': 'Martin', 'p': 'Jean', 'p2': 'Paul'},
+  {'n': 'Dupont', 'p': 'Alex', 'p2': 'Paul'}],
+ [{'n': 'Smith', 'p': 'John'},
+  {'n': 'Forbes', 'p': 'Bob'},
+  {'n': 'Forbes', 'p': 'Charlie'},
+  {'n': 'Smith', 'p': 'Bob'},
+  {'n': 'Smith', 'p': 'Charlie'},
+  {'n': 'Forbes', 'p': 'John'},
+  {'n': 'Smith', 'p': 'Bob', 'p2': 'Paul'}],
+ [{'n': 'Smith', 'p': 'Bob'},
+  {'n': 'Dupont', 'p': 'Laura'},
+  {'n': 'Martin', 'p': 'Jeanne', 'p2': 'Marie'},
+  {'n': 'Dupont', 'p': 'Alex'},
+  {'n': 'Martin', 'p': 'Jeanne'},
+  {'n': 'Dupont', 'p': 'Alex', 'p2': 'Paul'},
+  {'n': 'Smith', 'p': 'John'},
+  {'n': 'Smith', 'p': 'Charlie'},
+  {'n': 'Smith', 'p': 'Bob', 'p2': 'Paul'},
+  {'n': 'Forbes', 'p': 'Bob'},
+  {'n': 'Martin', 'p': 'Jeanneot'},
+  {'n': 'Martin', 'p': 'Jean', 'p2': 'Paul'},
+  {'n': 'Forbes', 'p': 'Charlie'},
+  {'n': 'Martin', 'p': 'Jean', 'p2': 'Pierre'},
+  {'n': 'Dupont', 'p': 'Alexandre'},
+  {'n': 'Dupont', 'p': 'Laura', 'p2': 'Marie'},
+  {'n': 'Forbes', 'p': 'John'},
+  {'n': 'Martin', 'p': 'Jean'},
+  {'n': 'Dupont', 'p': 'Alex', 'p2': 'Pierre'}]]
+
+
+
+
+
+inputs_tri_custom = [
+    Args(input) for input in inputs
+]
+
+exo_tri_custom = ExerciseFunction(
+    tri_custom, inputs_tri_custom,
+    call_renderer=PPrintCallRenderer(width=24),
+    result_renderer=PPrintRenderer(width=30),
+    font_size='small',
+)
+
+
+def tri_custom_ko(liste):
+    sort(liste)
+    return liste
+
+@endexo_two_sum.py!@
+from nbautoeval import Args, ExerciseFunction, PPrintCallRenderer
+
+
+# @BEG@ name=two_sum
+def two_sum(liste, target):
+    """
+    retourne un tuple de deux indices de deux nombres
+    dans la liste dont la somme fait target
+    """
+    for i, item1 in enumerate(liste):
+        for j, item2 in enumerate(liste):
+            # prune the loop on j altogether once we reach i
+            if j >= i:
+                break
+            if item1 + item2 == target:
+                return j, i
+# @END@
+
+
+# @BEG@ name=two_sum more=bis
+from itertools import product
+
+
+def two_sum_bis(liste, target):
+    """
+    pareil en utilisant itertools.product
+    pour éviter les deux for imbriqués
+    un tout petit peu moins efficace ici car on est dans une seule
+    boucle et donc on ne peut pas avorter la boucle interne
+    avec break
+    """
+    for (i, item1), (j, item2) in product(
+        enumerate(liste), enumerate(liste)):
+        for j, item2 in enumerate(liste):
+            if i >= j:
+                continue
+            if item1 + item2 == target:
+                return i, j
+# @END@
+
+
+# @BEG@ name=two_sum more=ter
+def two_sum_ter(liste, target):
+    """
+    toujours avec product, pour illustrer l'usage de repeat=
+    """
+    for (i, item1), (j, item2) in product(
+        enumerate(liste), repeat=2):
+        for j, item2 in enumerate(liste):
+            if i >= j:
+                continue
+            if item1 + item2 == target:
+                return i, j
+# @END@
+
+
+
+inputs = [
+    Args([10, 32, 46, 27, 55, 82, 16, 19], 128),
+    Args([0, 64, 1, 2, 128, 4, 8, 16, 32], 96),
+    Args([0, 64, 1, 128, 4, 8, 16, 32, 2], 3),
+    Args([0, 64, 1, 127, 4, 8, 16, 32, 2], 128),
+]
+
+
+exo_two_sum = ExerciseFunction(
+    two_sum,
+    inputs,
+    nb_examples=0,
+    call_renderer=PPrintCallRenderer(width=40),
+    font_size='x-small',
+)
+
+@endexo_vigenere.py!@
+# pylint: disable=c0111
+
+from nbautoeval import Args, ExerciseFunction, PPrintCallRenderer
+
+# @BEG@ name=cesar latex_size=footnotesize
+
+# pour passer des majuscules aux minuscules, il faut ajouter
+# 97-65=32
+import string
+
+UPPER_TO_LOWER = ord('a') - ord('A')
+
+
+def cesar(clear, key, encode=True):
+    """
+    retourne l'encryption du caractere <clear> par la clé <key>
+
+    le caractère <key> doit être un caractère alphabétique ASCII
+    c'est à dire que son ord() est entre ceux de 'a' et 'z' ou
+    entre ceux de 'A' et 'Z'
+    """
+
+    if clear not in string.ascii_letters:
+        return clear
+
+    # le codepoint de la clé
+    okey = ord(key)
+    # on normalise la clé pour être dans les minuscules
+    if key.isupper():
+        okey += UPPER_TO_LOWER
+
+    # la variable offset est un entier entre 0 et 25 qui indique
+    # de combien on doit décaler; si vous référez qu tout premier
+    # exemple, avec une clé qui vaut 'C' offset va valoir 3
+    offset = (okey - ord('a') + 1)
+
+    # si on encode, il faut ajouter l'offset,
+    # et si on décode, il faut le retrancher
+    if not encode:
+        offset = -offset
+
+    # ne reste plus qu'à faire le modulo
+    # sauf que les bornes ne sont pas les mêmes
+    # pour les majuscules ou pour les minuscules
+    bottom = ord('A') if clear.isupper() else ord('a')
+
+    return chr(bottom + (ord(clear) - bottom + offset) % 26)
+# @END@
+
+
+# @BEG@ name=cesar more=bis latex_size=footnotesize
+from itertools import chain
+
+# une autre approche entièrement consiste à précalculer
+# toutes les valeurs et les ranger dans un dictionnaire
+# qui va être haché par le tuple
+# (clear, key)
+# ça ne demande que 4 * 26 * 26 entrées dans le dictionnaire
+# c'est à dire environ 2500 entrées, ce n'est pas grand chose
+
+# on commence par le cas où le texte et la clé sont minuscules
+# on rappelle que ord('A')=97
+# avec nos définitions, une clé implique un décalage
+# de (ord(k)-96), car une clé A signifie un décalage de 1
+# par contre pour faire les calculs modulo 26
+# il faut faire (ord(c)-97) de façon à ce que A=0 et Z=25
+ENCODED_LOWER_LOWER = {
+    (c, k): chr((ord(c) - 97 + ord(k) - 96) % 26 + 97)
+    for c in string.ascii_lowercase
+    for k in string.ascii_lowercase
+}
+
+# maintenant on peut facilement en déduire la table
+# pour un texte en minuscule et une clé en majuscule
+# il suffit d'appliquer ENCODED_LOWER_LOWER avec la clé minuscule
+ENCODED_LOWER_UPPER = {
+    (c, k): ENCODED_LOWER_LOWER[(c, k.lower())]
+    for c in string.ascii_lowercase
+    for k in string.ascii_uppercase
+}
+# @END@
+
+# @BEG@ name=cesar more=bis continued=true latex_size=footnotesize
+
+# enfin pour le cas où le texte est en majuscule, on
+# va considérer l'union des deux premières tables
+# (que l'on va balayer avec itertools.chain sur leurs items())
+# et dire que pour encoder un caractère majuscule, on
+# n'a qu'à prendre encoder la minuscule et mettre le résultat en majuscule
+ENCODED_UPPER = {
+    (c.upper(), k): value.upper()
+    for (c, k), value in chain(ENCODED_LOWER_LOWER.items(),
+                               ENCODED_LOWER_UPPER.items())
+}
+
+# maintenant on n'a plus qu'à construire
+# l'union de ces 3 dictionnaires
+ENCODE_LOOKUP = {}
+ENCODE_LOOKUP.update(ENCODED_LOWER_LOWER)
+ENCODE_LOOKUP.update(ENCODED_LOWER_UPPER)
+ENCODE_LOOKUP.update(ENCODED_UPPER)
+
+# et alors pour calculer la table inverse,
+# c'est extrêmement simple, on dit que
+# decode(encoded, key) == clear
+# ssi
+# encode(clear, key) == encoded
+DECODE_LOOKUP = {
+    (encoded, key): clear for (clear, key), encoded
+    in ENCODE_LOOKUP.items()
+}
+
+# et maintenant pour faire le travail il suffit de
+# faire exactement **UNE** recherche dans la table qui va bien
+# ce qui est plus efficace en principe que la première approche
+# si le couple (texte, clé) n'est pas trouvé alors on renvoie texte tel quel
+def cesar_bis(clear, key, encode=True):
+    lookup = ENCODE_LOOKUP if encode else DECODE_LOOKUP
+    return lookup.get((clear, key), clear)
+# @END@
+
+
+inputs_cesar = [
+    Args('=', 'C'),
+    Args('A', 'C'),
+    Args('a', 'C'),
+    Args('A', 'c'),
+    Args('D', 'C', encode=False),
+    Args('A', 'L'),
+    Args('Z', 'L'),
+    Args('a', 'c'),
+    Args('N', 'L'),
+    Args('O', 'L'),
+    Args('D', 'C', encode=False),
+    Args('D', 'c', encode=False),
+    Args('D', 'c', encode=False),
+]
+
+for c in 'aNz':
+    for k in 'cJTx':
+        for encode in True, False:
+            inputs_cesar.append(Args(c, k, encode))
+
+
+exo_cesar = ExerciseFunction(
+    cesar, inputs_cesar,
+    nb_examples = 6,
+)
+
+def cesar_ko(*args, **kwds):
+    1/0
+####################
+
+# @BEG@ name=vigenere
+from itertools import cycle
+
+# grâce à une combinaison de zip et de itertools.cycle
+# on peut itérer sur
+# d'une part, le message
+# et d'autre part, sur la clé, en boucle
+#
+# notez que
+# (*) cycle ne s'arrête jamais
+# (*) mais zip, lui, s'arrête au plus court de ses (ici deux)
+#     ingrédients
+# ce qui fait que zip(message, cycle(cle))
+# fait exactement ce dont on a besoin
+
+def vigenere(clear, key, encode=True):
+    return "".join(
+        cesar(c, k, encode)
+        for c, k in zip(clear, cycle(key))
+    )
+# @END@
+
+inputs_vigenere = [
+    Args('ce message', 'cle'),
+    Args('fq pqxvmlh', 'CLE', False),
+    Args('une charogne', 'baudelaire'),
+    Args("Rappelez-vous l'objet", 'Charles'),
+    Args("que nous vîmes", 'baudelaire'),
+]
+
+exo_vigenere = ExerciseFunction(
+    vigenere, inputs_vigenere,
+    nb_examples=2,
+    call_renderer=PPrintCallRenderer(width=25),
+)
+
+def vigenere_ko(*args, **kwds):
+    1/0
+
+@endexo_wc.py!@
+from nbautoeval import ExerciseFunction, Args, PPrintRenderer, PPrintCallRenderer
+
+
+# @BEG@ name=wc
+def wc(string):
+    """
+    Compte les nombres de lignes, de mots et de caractères
+
+    Retourne une liste de ces 3 nombres (notez qu'usuellement
+    on renverrait plutôt un tuple, qu'on étudiera la semaine prochaine)
+    """
+    # on peut tout faire avec la bibliothèque standard
+    nb_lines = string.count('\n')
+    nb_words = len(string.split())
+    nb_bytes = len(string)
+    return [nb_lines, nb_words, nb_bytes]
+# @END@
+
+wc_inputs = (
+    Args('''Python is a programming language
+that lets you work quickly
+and integrate systems more effectively.'''),
+    Args(''),
+    Args('abc'),
+    Args('abc \t'),
+    Args('a  bc \t'),
+    Args(' \tabc \n'),
+    Args(" ".join("abcdefg") + "\n"),
+    Args('''The Zen of Python, by Tim Peters
+
+Beautiful is better than ugly.
+Explicit is better than implicit.
+Simple is better than complex.
+Complex is better than complicated.
+Flat is better than nested.
+Sparse is better than dense.
+...'''),
+    )
+
+exo_wc = ExerciseFunction(
+    wc, wc_inputs,
+    call_renderer=PPrintCallRenderer(max_width=40, show_function=True),
+    result_renderer=PPrintRenderer(width=15))
+
+@endexo_xixj.py!@
+from nbautoeval import Args, ExerciseFunctionNumpy
+
+# @BEG@ name=xixj
+import numpy as np
+
+def xixj(*args):
+    """
+    si les arguments sont x1, x2, .. xn
+    retourne une matrice carrée n x n
+    dont les éléments valent
+    m[i, j] = xi * xj
+
+    première solution à base de produit usuel
+    entre un vecteur et une colonne, en utilisant
+    le broadcasting
+
+    credits: JeF29
+    """
+
+    # une ligne qui contient x1, .. xn
+    line = np.array(args)
+    # habile façon de reshaper automatiquement
+    column = line.reshape(-1, 1)
+    # on aurait pu faire aussi
+    #column = line[:, np.newaxis]
+    return line * column
+# @END@
+
+# @BEG@ name=xixj more=2
+def xixj_2(*args):
+    """
+    pareil mais on construit la colonne avec .T
+    qui est la transposée - méfiance quand même
+    """
+    # sauf que pour pouvoir utiliser .T il faut
+    # une shape qui est explicitement [1, n]
+    #
+    # c'est pourquoi moi j'ai tendance à éviter .T
+    # voyez plutôt np.transpose() si vous avez besoin
+    # de transposer une matrice
+    line = np.array(args).reshape((1, -1))
+    return line * line.T
+# @END@
+
+
+# @BEG@ name=xixj more=3
+def xixj_3(*args):
+    """
+    on peut aussi penser à faire un produit matriciel
+    """
+    # on doit lui donner une dimension 2 même si c'est une ligne
+    line = np.array(args).reshape((1, -1))
+    column = line.reshape((-1, 1))
+    return column @ line
+# @END@
+
+
+# @BEG@ name=xixj more=4
+def xixj_4(*args):
+    """
+    pareil mais en utilisant .dot()
+    """
+    column = np.array(args).reshape((-1, 1))
+    # dans cette version on fait le produit de matrice
+    # en utilisant la méthode dot sur les tableaux
+    return column.dot(column.T)
+    # remarquez qu'on aurait pu faire aussi bien
+    # return np.dot(column, column.T)
+# @END@
+
+
+def xixj_ko(*args):
+    # presque ça mais sans le reshape
+    array = np.array(args)
+    return array.T @ array
+
+
+inputs_xixj = [
+    Args(1),
+    Args(1, 2),
+    Args(1, 2, 4),
+    Args(1, 0, 4),
+    Args(8, 4, 2),
+    Args(0, 1, 2, 4, 8),
+    Args(1, 1j, -1, -1j),
+]
+
+
+exo_xixj = ExerciseFunctionNumpy(
+    xixj, inputs_xixj,
+    nb_examples = 3,
+)
+
+@endframework-usage.md!@
+# MOOC exos
+
+## validation
+
+Running 
+
+    cd corriges
+    make validation
+    
+will create a notebook `modules/corrections/validation.ipynb` that has all the exos present, so one can check how they show up.
+
+To visualize this
+
+    cd modules/corrections
+    f2
+    
+## Known exceptions
+
+At this point, `make validation` will issue
+
+* 2 pairs of warning messages about `liste_racines` and `affichage` that are deprecated exos (but still in the corrections for now)
+
+* 2 current exos that could not fit the validation framework:
+  * `from corrections.w5s6_rpcproxy`
+  * `from data.shipdict import Position, Ship, ShipDict`
+
+None of these 2 are really online-corrected; they do make it to the 'corriges/' and that is the only reason why they are mentioned here.
+
+## Lower-level exceptions 
+
+As of iteration 1, all exos used the `ExerciseFunction` class. Their implementation is sometimes a little twisted
+
+* `from w2s3_slicing import exo_inconnue` - input is the string as computed by student, not a function
+
+* `w6s6_regexp.py` uses the `ExerciseRegexp` and `ExerciseRegexpGroups` subclasses; input is not a function but some form of regexp string, that is turned into a function.
+
+* ...
+
+
+
+
+@endgen_primes.py!@
+from nbautoeval import ExerciseGenerator, GeneratorArgs, PPrintRenderer
+
+
+# @BEG@ name=primes
+import math
+import itertools
+
+def primes():
+    """
+    enumerate prime numbers
+    """
+    # the set of primes we have found so far
+    # so we avoid divisions by non-primes
+    cache_primes = set()
+
+    for n in itertools.count(2):
+        for i in range(2, int(math.sqrt(n))+1):
+            # no need to try to divide by non-primes
+            if i not in cache_primes:
+                continue
+            # not a prime, go to n+1
+            if n % i == 0:
+                break
+        # remember that a 'for' statement
+        # can be attached an 'else' which
+        # gets executed when no 'break' statement has triggered
+        # in our case, we run this 'else' part when n is prime
+        else:
+            # n is prime, remember it for the rest of the enumeration
+            cache_primes.add(n)
+            yield n
+# @END@
+
+primes_args = [
+    GeneratorArgs(islice=(20,)),
+    GeneratorArgs(islice=(1, 6, 2)),
+    GeneratorArgs(islice=(10, 20, 2)),
+    GeneratorArgs(islice=(98, 101)),
+]
+
+# max_iterations is mostly a provision to avoid endless loops
+exo_primes = ExerciseGenerator(
+    primes, primes_args, max_iterations=501,
+    nb_examples=0,
+    result_renderer=PPrintRenderer(width=30),
+)
+
+primes_ko = itertools.count
+
+
+
+# prime-squares
+
+# @BEG@ name=prime_squares
+def prime_squares():
+    """
+    iterates over the squares of prime numbers
+    """
+    # a generator expression is the most obvious way that springs to mind
+    return (prime**2 for prime in primes())
+# @END@
+
+
+# @BEG@ name=prime_squares more=bis
+def prime_squares_bis():
+    """
+    same using a generator function
+    """
+    # a generator expression is the most obvious way that springs to mind
+    for prime in primes():
+        yield prime**2
+# @END@
+
+
+prime_squares_args = [
+    GeneratorArgs(islice=(10,)),
+]
+
+exo_prime_squares = ExerciseGenerator(
+    prime_squares, prime_squares_args,
+    max_iterations=100,
+    result_renderer=PPrintRenderer(width=30),
+)
+
+
+
+### LEGOs
+
+# @BEG@ name=prime_legos
+import itertools
+
+def prime_legos():
+    """
+    iterates over shifted primes (with a 5-items padding with 1s)
+    and over primes squares
+    """
+    part1 = itertools.chain(itertools.repeat(1, 5), primes())
+    part2 = (prime**2 for prime in primes())
+    return zip(part1, part2)
+# @END@
+
+
+# @BEG@ name=prime_legos more=bis
+import itertools
+
+def prime_legos_bis():
+    """
+    same behaviour
+    we optimize CPU performance by creating a single instance
+    of the primes() generator, and duplicate it using `itertools.tee()`
+    """
+    # this is where the pseudo-copy takes place
+    primes1, primes2 = itertools.tee(primes(), 2)
+    # the rest is of course the same as in the naive version
+    part1 = itertools.chain(itertools.repeat(1, 5), primes1)
+    part2 = (prime**2 for prime in primes2)
+    return zip(part1, part2)
+# @END@
+
+
+args_prime_legos = [
+    GeneratorArgs(islice=(10,)),
+    GeneratorArgs(islice=(50, 100, 10)),
+]
+
+exo_prime_legos = ExerciseGenerator(
+    prime_legos, args_prime_legos,
+    max_iterations=101,
+    nb_examples=0,
+    result_renderer=PPrintRenderer(width=30),
+)
+
+def prime_legos_ko():
+    return zip(primes(), primes())
+
+
+
+# prime-th-primes
+
+# @BEG@ name=prime_th_primes
+def prime_th_primes():
+    """
+    iterate the n-th prime number, with n it self being prime
+
+    given that primes() emits 2, 3, 5
+    then prime_th_primes() starts with 5 which has index 2 in that enumeration
+    """
+    primes1 = primes()
+    primes2 = primes()
+
+    # current will scan all prime numbers
+    current = next(primes1)
+    # index will scan all integers
+    for index, prime in enumerate(primes2):
+        # when it matches 'current' it means we have a winner
+        if index == current:
+            yield prime
+            current = next(primes1)
+# @END@
+
+
+# @BEG@ name=prime_th_primes more=bis
+def prime_th_primes_bis():
+    """
+    same purpose
+
+    this approach is a little more manual
+    as we do our own calls to next()
+
+    """
+    primes1 = primes()
+    primes2 = primes()
+    # this start with -1 because it's a number of times we need to do next()
+    # and, as opposed with usual indexing that starts at 0
+    # to get item at index 0 we need to do ONE next()
+    current_index = -1
+
+    while True:
+        # what's the next prime index
+        next_index = next(primes1)
+        # the amount of times we must iterate on primes2
+        offset = next_index - current_index
+        # move primes2 forward that many times
+        for _ in range(offset):
+            output = next(primes2)
+        # we have a winner
+        yield output
+        # this is where we are, so we can compute the next hop
+        current_index = next_index
+# @END@
+
+
+args_prime_th_primes = [
+    GeneratorArgs(islice=(10,)),
+    GeneratorArgs(islice=(1, 20, 2)),
+]
+
+exo_prime_th_primes = ExerciseGenerator(
+    prime_th_primes, args_prime_th_primes,
+    max_iterations=50,
+    result_renderer=PPrintRenderer(width=30),
+)
+
+def prime_th_primes_ko():
+    return itertools.islice(prime_th_primes(), 1, None)
+
+
+
+
+###
+# not yet operational
+# requires nbautoeval features that are not yet ready
+# 0.6.1 was badly broken
+def differential(iterator):
+    previous = next(iterator)
+    while True:
+        current = next(iterator)
+        yield current - previous
+        previous = current
+
+
+def squares():
+    return (i**2 for i in itertools.count())
+
+differential_args = [
+    GeneratorArgs(itertools.count(), islice=(10,)),
+    GeneratorArgs(squares(), islice=(10,)),
+]
+
+exo_differential = ExerciseGenerator(
+    differential, differential_args,
+    max_iterations=200,
+    result_renderer=PPrintRenderer(width=30),
+)
+
+differential_ko = lambda : (2*n+1 for n in itertools.count())
+
+@endgen_treescanner.py!@
+from nbautoeval import (ExerciseGenerator, GeneratorArgs, 
+                        PPrintRenderer, PPrintCallRenderer)
+
+
+# @BEG@ name=treescanner
+def treescanner(tree):
+    """
+    enumerate all leaves in a tree
+    """
+    # a typical example where
+    # the 'yield from' statement 
+    # is the only way to go
+    if isinstance(tree, list):
+        for subtree in tree:
+            yield from treescanner(subtree)
+    else:
+        yield tree
+# @END@
+
+def tree(offset, width, depth):
+    """
+    one root, width sons, width**2 grandsons
+    """
+    def build(width, depth):
+        if depth == 0:
+            return [0]
+        else:
+            return [build(width, depth-1) for _ in range(width)]
+    def number_leaves(tree, value):
+        for i, subtree in enumerate(tree):
+            if not isinstance(subtree, list):
+                tree[i] = value
+                value += 1
+            else:
+                value = number_leaves(subtree, value)
+        return value
+    raw = build(width, depth)
+    number_leaves(raw, offset)
+    return raw
+
+T1 = [tree(1, 2, 2), tree(10, 3, 2), tree(20, 2, 3), 50, tree(100, 2, 4)]
+
+T2 = tree(1, 2, 5)
+
+
+treescanner_args = [
+    GeneratorArgs([], islice=(1000,)),
+    GeneratorArgs(0, islice=(1000,)),
+    GeneratorArgs([0], islice=(1000,)),
+    GeneratorArgs([[0]], islice=(1000,)),
+    GeneratorArgs([1, [2]], islice=(1000,)),
+    GeneratorArgs([[1, 2], 3, [4, 5]], islice=(1000,)),
+    GeneratorArgs(T1, islice=(1000,)),
+    GeneratorArgs(T2, islice=(1000,)),
+]
+
+# max_iterations is mostly a provision to avoid endless loops
+exo_treescanner = ExerciseGenerator(
+    treescanner, treescanner_args, max_iterations=100,
+    nb_examples=6,
+    result_renderer=PPrintRenderer(width=40),
+    call_renderer=PPrintCallRenderer(width=40),
+)
+
+@endgraph.py!@
+#!/usr/bin/env python3
+
+class Node:
+    def __init__(self, content):
+        self.content = content
+        self.neighbours = set()
+        self._mark = None
+
+class Graph:
+    """
+
+    """
+    def __init__(self):
+        self.nodes = set()
+        self.vertices = set()
+
+    def add_vertex(self, n1, n2):
+        self.vertices.add( (n1, n2,) )
+        self.n1.neighbours.add(n2)
+
+    def parse_file(self, filename):
+
+@end__init__.py!@
+
+@endleftovers.py!@
+# from w2s7_for.py
+
+### ####################
+### # restes de l'itération 1 - trop abscons
+### # @BEG@ week=2 sequence=7 name=liste_racines
+### from math import e, pi
+###
+### def liste_racines(p):
+###     "retourne la liste des racines p-ièmes de l'unité"
+###     # une simple compréhension fait l'affaire
+###     # souvenez vous que 1j c'est notre 'i' complexe
+###     return [e**((2j*pi*n)/p) for n in range(p)]
+###
+### # Il est tout à fait possible aussi de construire les racines pas à pas
+### # C'est un peu moins élégant mais ça fonctionne très bien aussi
+### def liste_racines_bis(p):
+###     "retourne la liste des racines p-ièmes de l'unité"
+###     # on va construire le résultat petit à petit
+###     # en partant d'une liste vide
+###     resultat = []
+###     # pour chaque n dans {0 .. p-1}
+###     for n in range(p):
+###         # on ajoute dans le résultat la racine d'ordre n
+###         resultat.append(e**((2j*pi*n)/p))
+###     # et on retourne le résultat
+###     return resultat
+### # @END@
+###
+### inputs_liste_racines = [Args(2), Args(3), Args(4)]
+###
+### exo_liste_racines = ExerciceFunction(
+###     liste_racines,
+###     inputs_liste_racines,
+### )
+
+
+
+# from w2s8_strings
+
+# left over from iteration 1
+
+### # @BEG@ week=2 sequence=8 name=affichage
+### # un élève a remarqué très justement que ce code ne fait pas
+### # exactement ce qui est demandé, en ce sens qu'avec
+### # l'entrée correspondant à Ted Mosby on obtient A:><
+### # je préfère toutefois publier le code qui est en
+### # service pour la correction en ligne, et vous laisse
+### # le soin de l'améliorer si vous le souhaitez
+### def affichage(s):
+###     # pour ignorer les espaces et les tabulations
+###     # le plus simple est de les enlever
+###     s=s.replace(' ', '').replace('\t','')
+###     # la liste des mots séparés par une virgule
+###     # nous est donnée par un simple appel à split
+###     mots = s.split(',')
+###     # si on n'a même pas deux mots, on retourne None
+###     if len(mots) < 2:
+###         return None
+###     # maintenant qu'on sait qu'on a deux mots
+###     # on peut extraire le prénom et le nom
+###     prenom = mots.pop(0)
+###     nom = mots.pop(0)
+###     # on veut afficher "??" si l'âge est inconnu
+###     age = "??"
+###     # mais si l'âge est précisé dans la ligne
+###     if len(mots) >= 2:
+###         # alors on le prend
+###         age = mots.pop(1)
+###     # il ne reste plus qu'à formater
+###     return "N:>{}< P:>{}< A:>{}<".format(nom, prenom, age)
+### # @END@
+###
+### inputs_affichage = [
+###     Args("Joseph, Dupont"),
+###     Args("Jules , Durand, G123, 21"),
+###     Args("Jean"),
+###     Args("Ted, Mosby, F321, "),
+###     Args(" Jacques , Martin, L119, \t24 ,"),
+###     Args("Sheldon, Cooper ,"),
+###     Args("\t Sam, Does\t, F321, 23"),
+### ]
+###
+### exo_affichage = ExerciceFunction(
+###     affichage, inputs_affichage,
+###     exemple_how_many=4)
+
+@endregexp_agenda.py!@
+from nbautoeval import Args, ExerciseRegexp, ExerciseRegexpGroups, PPrintRenderer
+
+
+agenda_strings = [
+    "Daniel:Durand",
+    "Jean:Dupont:",
+    "Jean:Dupont::",
+    ":Dupontel:",
+    "Jean-Noël:Dupont-Nemours",
+    "Charles-Henri:Du Pré",
+    "Charles Henri:DuPré",
+]
+
+
+# @BEG@ name=agenda more=regexp
+# l'exercice est basé sur re.match, ce qui signifie que
+# le match est cherché au début de la chaine
+# MAIS il nous faut bien mettre \Z à la fin de notre regexp,
+# sinon par exemple avec la cinquième entrée le nom 'Du Pré'
+# sera reconnu partiellement comme simplement 'Du'
+# au lieu d'être rejeté à cause de l'espace
+#
+# du coup pensez à bien toujours définir
+# vos regexps avec des raw-strings
+#
+# remarquez sinon l'utilisation à la fin de :? pour signifier qu'on peut
+# mettre ou non un deuxième séparateur ':'
+#
+agenda = r"\A(?P<prenom>[-\w]*):(?P<nom>[-\w]+):?\Z"
+# @END@
+
+
+agenda_groups = ['nom', 'prenom']
+
+
+exo_agenda = ExerciseRegexpGroups(
+    'agenda', agenda, agenda_groups,
+    [Args(x) for x in agenda_strings],
+    nb_examples = 0,
+    result_renderer=PPrintRenderer(width=30),
+)
+
+
+agenda_ko = r"\A(?P<prenom>[-\w]*):(?P<nom>[-\w]+):?"
+
+@endregexp_phone.py!@
+from nbautoeval import Args, ExerciseRegexp, ExerciseRegexpGroups
+
+
+phone_strings = [
+    "0123456789",
+    "01234567890",
+    "012345678",
+    "1234567890",
+    "+33123456789",
+    "+3312345678",
+    "+330123456789",
+]
+
+
+# @BEG@ name=phone more=regexp
+# idem concernant le \Z final
+#
+# il faut bien backslasher le + dans le +33
+# car sinon cela veut dire 'un ou plusieurs'
+#
+phone = r"(\+33|0)(?P<number>[0-9]{9})\Z"
+# @END@
+
+
+phone_groups = ['number']
+
+
+exo_phone = ExerciseRegexpGroups(
+    'phone', phone, phone_groups,
+    [Args(x) for x in phone_strings],
+    nb_examples = 0)
+
+
+phone_ko = r"(\+33|0)(?P<number>[0-9]{8})\Z"
+
+@endregexp_pythonid.py!@
+from nbautoeval import Args, ExerciseRegexp, ExerciseRegexpGroups
+
+germs = [ 'aa1', 'A1a', '1Aa']
+pythonid_strings = [ 'a', '_', '__', '-', ] + germs [:]
+for germ in germs:
+    for i in range (len(germ)):
+        for seed in '-_':
+            pythonid_strings.append(germ[:i]+seed+germ[i:])
+
+# @BEG@ name=pythonid more=regexp
+# un identificateur commence par une lettre ou un underscore
+# et peut être suivi par n'importe quel nombre de
+# lettre, chiffre ou underscore, ce qui se trouve être \w
+# si on ne se met pas en mode unicode
+pythonid = r"[a-zA-Z_]\w*"
+# @END@
+
+# @BEG@ name=pythonid more=bis
+# on peut aussi bien sûr l'écrire en clair
+pythonid_bis = r"[a-zA-Z_][a-zA-Z0-9_]*"
+# @END@
+
+exo_pythonid = ExerciseRegexp(
+    'pythonid', pythonid,
+    [Args(x) for x in pythonid_strings],
+    nb_examples = 8)
+
+pythonid_ko = r"\w+"
+
+@endregexp_url.py!@
+# pylint: disable=c0111, c0103, c0326
+
+from nbautoeval import Args, ExerciseRegexp, ExerciseRegexpGroups, PPrintRenderer
+
+######################################## url
+url_strings = """
+http://www.google.com/a/b
+HttPS://www.google.com:8080/a/b
+http://user@www.google.com/a/b
+FTP://username:hispass@www.google.com/
+ssh://missing.ending.slash
+gopher://unsupported.proto.col/
+http:///missing/hostname/
+""".split()
+
+# @BEG@ name=url more=regexp
+# en ignorant la casse on pourra ne mentionner les noms de protocoles
+# qu'en minuscules
+i_flag = "(?i)"
+
+# pour élaborer la chaine (proto1|proto2|...)
+protos_list = ['http', 'https', 'ftp', 'ssh', ]
+protos      = "(?P<proto>" + "|".join(protos_list) + ")"
+
+# à l'intérieur de la zone 'user/password', la partie
+# password est optionnelle - mais on ne veut pas le ':' dans
+# le groupe 'password' - il nous faut deux groupes
+password    = r"(:(?P<password>[^:]+))?"
+
+# la partie user-password elle-même est optionnelle
+# on utilise ici un raw f-string avec le préfixe rf
+# pour insérer la regexp <password> dans la regexp <user>
+user        = rf"((?P<user>\w+){password}@)?"
+
+# pour le hostname on accepte des lettres, chiffres, underscore et '.'
+# attention à backslaher . car sinon ceci va matcher tout y compris /
+hostname    = r"(?P<hostname>[\w\.]+)"
+
+# le port est optionnel
+port        = r"(:(?P<port>\d+))?"
+
+# après le premier slash
+path        = r"(?P<path>.*)"
+
+# on assemble le tout
+url = i_flag + protos + "://" + user + hostname + port + '/' + path
+# @END@
+
+# @BEG@ name=url more=bis
+# merci à sizeof qui a pointé l'utilisation de re.X
+# https://docs.python.org/fr/3/library/re.html#re.X
+# ce qui donne une présentation beaucoup plus compacte
+
+protos_list = ['http', 'https', 'ftp', 'ssh', ]
+
+url_bis = rf"""(?x)                    # verbose mode
+    (?i)                               # ignore case
+    (?P<proto>{"|".join(protos_list)}) # http|https|...
+    ://                                # separator
+    ((?P<user>\w+){password}@)?        # optional user/password
+    (?P<hostname>[\w\.]+)              # mandatory hostname
+    (:(?P<port>\d+))?                  # optional port
+    /(?P<path>.*)                      # mandatory path
+"""
+# @END@
+
+groups = [ 'proto', 'user', 'password', 'hostname', 'port', 'path' ]
+
+exo_url = ExerciseRegexpGroups(
+    'url', url, groups,
+    [Args(x) for x in url_strings],
+    nb_examples=0,
+    font_size='x-small', header_font_size='small',
+    result_renderer=PPrintRenderer(width=30),
+)
+
+url_ko = i_flag + protos + "://" + hostname + '/' + path
+
+@end!@
+
+@end
